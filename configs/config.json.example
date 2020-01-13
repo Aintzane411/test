@@ -1,0 +1,5 @@
+{
+  "token": "DISCORD_BOT_TOKEN",
+  "error_log_channel": 111111111111111111,
+  "bot_prefix": "pn;"
+}
