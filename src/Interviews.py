@@ -13,11 +13,18 @@ import discord
 from discord.ext import commands
 
 import embeds
-from utils import get_channel, get_webhook, backup_interviews
+import db
+from utils import get_channel, get_webhook, backup_interviews_to_db
 
 
 ZERO_WIDTH_CHAR = " ‌‌‌ "
 TRIANGLE_EMOJI = "⚠ "
+
+
+async def create_interview(discord_client: commands.Bot, interviews: Interviews, member: Optional[discord.Member], channel: Optional[discord.TextChannel]) -> Interview:
+    interview = Interview(discord_client, interviews, member, channel)
+    await interview.init()
+    return interview
 
 
 class Interview:
@@ -48,10 +55,12 @@ class Interview:
         self.interviews: Interviews = interviews
         self.member: discord.Member = member
         self.channel: discord.TextChannel = channel
+        # self.guild: Optional[discord.Guild] = guild
 
         # Persistent (Via JSON backup)
         self.member_id = self.member.id if self.member is not None else None
         self.channel_id = self.channel.id if self.channel is not None else None
+        self.guild_id = self.channel.guild.id if self.channel is not None else None
         self.question_number: int = 0
         self.interview_finished: bool = False
 
@@ -64,6 +73,13 @@ class Interview:
         # Not Persistent
         self.waiting_for_msgs = False
         self.questions = self.interviews.settings['interview_questions']
+
+    async def init(self):
+        # Only add a new DB entry if the interview object has been instantiated with Member and Channel objects. Otherwise, the object has been instantiated for load from DB Backup.
+        if self.member is not None and self.channel is not None:
+            await db.add_new_interview(self.client.db, self.guild_id, self.member_id, self.member.display_name,
+                                       self.channel_id, self.question_number, self.interview_finished,
+                                       self.paused, self.interview_type, read_rules=False)
 
     def __str__(self):
 
@@ -241,11 +257,18 @@ class Interview:
         return data
 
     def dump_json(self):
-        # raise NotImplementedError
-        return json.dumps(self.dump_dict, indent=4)
+        raise NotImplementedError
+        # return json.dumps(self.dump_dict, indent=4)
+
+    async def save_to_db(self):
+        self.LOG.info("Interview: save_to_db()")
+        self.LOG.info(f"Saving {self.member.display_name}'s interview")
+        read_rules = True if len(self.rule_confirmations) > 0 else False
+        await db.update_interview_all_mutable(self.client.db, self.guild_id, self.member_id, self.question_number, self.interview_finished, self.paused, self.interview_type, read_rules)
 
     async def load_json(self, json_data: dict):
         # raise NotImplementedError
+        # Still used by self.load_db()
 
         # TODO: Add error handling.
         self.question_number = json_data["question_number"]
@@ -270,10 +293,16 @@ class Interview:
                 f"Found channel matching {self.channel_id}({self.channel.name}), but could not find member matching: {self.member_id}!! Corresponding interview will not be loaded!!")
 
         if self.member is not None and self.channel is not None:
+            self.guild_id = self.channel.guild.id
             await self.prompt_to_resume()
             return self
         else:
             return
+
+    async def load_db(self, db_dict: dict):
+        json_dict = db_dict
+        json_dict['rule_confirmations'] = ['dummy_conf'] if db_dict['read_rules'] else []
+        return await self.load_json(json_dict)
 
 
 class Interviews:
@@ -309,11 +338,15 @@ class Interviews:
                 return interview
         return None
 
-    def new_interview(self, member: discord.Member, channel: discord.TextChannel) -> Interview:
+    async def new_interview(self, member: discord.Member, channel: discord.TextChannel) -> Interview:
         interview = Interview(self.client, self, member, channel)
         self.interviews.append(interview)
 
+        # Initialize the Interview.
+        await interview.init()
+
         #TODO: Call backup interview here. Remove from on User join.
+
         return interview
 
     async def init_archive_and_log_channel(self):
@@ -331,7 +364,8 @@ class Interviews:
         if archive:
             await self.archive_interview_webhooks(interview, message)
         await interview.channel.delete()
-        backup_interviews(self)
+        await db.delete_interview(self.client.db, interview.guild_id, interview.member_id)
+        await backup_interviews_to_db(self)
 
     async def archive_interview_webhooks(self, interview, message=None):
 
@@ -393,32 +427,62 @@ class Interviews:
             await interview.channel.send(TRIANGLE_EMOJI + "ERROR! Could not archive channel. Please archive, then delete this channel manually. Additionally, please report this error to the bot owner.")
             raise e
 
-    def dump_json(self) -> str:
-        interviews_data = []
-        for interview in self.interviews:
-            interviews_data.append(interview.dump_dict())
-        data = {"interviews": interviews_data}
-        return json.dumps(data, indent=4)
+    # def dump_json(self) -> str:
+    #     interviews_data = []
+    #     for interview in self.interviews:
+    #         interviews_data.append(interview.dump_dict())
+    #     data = {"interviews": interviews_data}
+    #     return json.dumps(data, indent=4)
 
-    async def load_json(self, json_data: str):
-        data = json.loads(json_data)
-        self.LOG.info(f"Expecting to load {len(data['interviews'])} interviews from backup file.")
-        for interview_data in data["interviews"]:
+    async def save_to_db(self):
+        self.LOG.info("Interviews: save_to_db()")
+        self.LOG.info(f"Saving {len(self.interviews)} interviews")
+        for interview in self.interviews:
+            await interview.save_to_db()
+
+
+    # async def load_json(self, json_data: str):
+    #     data = json.loads(json_data)
+    #     self.LOG.info(f"Expecting to load {len(data['interviews'])} interviews from backup file.")
+    #     for interview_data in data["interviews"]:
+    #         interview_obj = Interview(self.client, self, None, None)
+    #         interview_obj = await interview_obj.load_json(interview_data)
+    #         if interview_obj is not None:
+    #             self.LOG.info("loaded interview")
+    #             self.interviews.append(interview_obj)
+    #             self.LOG.info("added interview to interviews")
+    #
+    #     if len(data['interviews']) != len(self.interviews):
+    #         self.LOG.warning(f"Could not load all interviews!!! Expected: {len(data['interviews'])}, Got: {len(self.interviews)}")
+    #         self.LOG.warning(f"Interview Dump File:\n{data['interviews']}\n")
+    #         self.LOG.warning("Loaded Interviews:")
+    #         for loaded_interview in self.interviews:
+    #             self.LOG.warning(loaded_interview)
+    #     elif len(data['interviews']) == 0:
+    #         self.LOG.info(f"No interviews in backup file. raw loaded string:\n {data}")
+    #     self.LOG.info("Finished loading interviews")
+    #     return self
+
+
+    async def load_db(self, db_data: List[Dict]):
+        self.LOG.info(f"Expecting to load {len(db_data)} interviews from database.")
+        for interview_data in db_data:
             interview_obj = Interview(self.client, self, None, None)
-            interview_obj = await interview_obj.load_json(interview_data)
+            interview_obj = await interview_obj.load_db(interview_data)
             if interview_obj is not None:
                 self.LOG.info("loaded interview")
                 self.interviews.append(interview_obj)
                 self.LOG.info("added interview to interviews")
 
-        if len(data['interviews']) != len(self.interviews):
-            self.LOG.warning(f"Could not load all interviews!!! Expected: {len(data['interviews'])}, Got: {len(self.interviews)}")
-            self.LOG.warning(f"Interview Dump File:\n{data['interviews']}\n")
+        if len(db_data) != len(self.interviews):
+            self.LOG.warning(
+                f"Could not load all interviews!!! Expected: {len(db_data)}, Got: {len(self.interviews)}")
+            self.LOG.warning(f"Interview Dump DB:\n{db_data}\n")
             self.LOG.warning("Loaded Interviews:")
             for loaded_interview in self.interviews:
                 self.LOG.warning(loaded_interview)
-        elif len(data['interviews']) == 0:
-            self.LOG.info(f"No interviews in backup file. raw loaded string:\n {data}")
+        elif len(db_data) == 0:
+            self.LOG.info(f"No interviews in DB. raw loaded string:\n {db_data}")
         self.LOG.info("Finished loading interviews")
         return self
 

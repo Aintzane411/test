@@ -35,11 +35,12 @@ async def get_channel(client: commands.Bot, channel_id: int) -> Optional[discord
     return channel
 
 
-def backup_interviews(interviews, interview_file_path: str = './data/interview_dump.json'):
-    num_of_interviews = len(interviews.interviews)
-    with open(interview_file_path, 'w') as jdump:
-        jdump.write(interviews.dump_json())
-    log.info("{} interviews backed up".format(num_of_interviews))
+# ---------- JSON Methods ---------- #
+# def backup_interviews(interviews, interview_file_path: str = './data/interview_dump.json'):
+#     num_of_interviews = len(interviews.interviews)
+#     with open(interview_file_path, 'w') as jdump:
+#         jdump.write(interviews.dump_json())
+#     log.info("{} interviews backed up".format(num_of_interviews))
 
 
 def clear_all_interviews(interview_file_path: str = './data/interview_dump.json'):
@@ -52,6 +53,12 @@ def save_settings(settings, settings_file_path: str = 'guildSettings.json'):
     with open(settings_file_path, 'w') as jdump:
         json.dump(settings, jdump, indent=4)
     log.info("Settings backed up")
+
+
+# ---------- DB Methods ---------- #
+async def backup_interviews_to_db(interviews):
+    await interviews.save_to_db()
+    log.info("{} interviews backed up".format(len(interviews.interviews)))
 
 
 async def get_webhook(client: commands.Bot, channel: discord.TextChannel) -> discord.Webhook:

@@ -17,9 +17,12 @@ import discord
 from discord.ext import commands
 
 import embeds
-from utils import get_channel, SnowFlake, backup_interviews, get_webhook, save_settings, clear_all_interviews
+from utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews
 from exceptions import NotTeamMember
 from Interviews import Interviews, Interview
+
+from PNDiscordBot import PNBot
+import db
 
 ZERO_WIDTH_CHAR = " ‌‌‌ "
 TRIANGLE_EMOJI = "⚠ "
@@ -29,7 +32,7 @@ magic_word = "acceptable"
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s")
 log = logging.getLogger("PNBot")
 
-client = commands.Bot(command_prefix="ib!",
+client = PNBot(command_prefix="ib!",
                       max_messages=5000,
                       # description="A bot for interviewing new members.\n",
                       owner_id=389590659335716867,
@@ -48,13 +51,16 @@ async def on_ready():
 
     await open_interviews.init_archive_and_log_channel()
 
-    try:
-        with open("./data/interview_dump.json", "r") as json_file:
-            await open_interviews.load_json(json_file.read())
-            log.info("Loaded {} interviews from backup file.".format(len(open_interviews.interviews)))
-    except FileNotFoundError:
-        log.info("No interview backup file found. Starting with fresh configuration.")
+    # try:
+    #     with open("./data/interview_dump.json", "r") as json_file:
+    #         await open_interviews.load_json(json_file.read())
+    #         log.info("Loaded {} interviews from backup file.".format(len(open_interviews.interviews)))
+    # except FileNotFoundError:
+    #     log.info("No interview backup file found. Starting with fresh configuration.")
 
+    all_interviews = await db.get_all_interviews(client.db)
+    await client.open_interviews.load_db(all_interviews)
+    log.info("Loaded {} interviews from database.".format(len(client.open_interviews.interviews)))
     log.info('------')
 
 
@@ -349,7 +355,7 @@ async def remove_question(ctx: commands.Context):
 @client.command(name="dump")
 async def dump_interviews(ctx: commands.Context):
     log.info("Dumping interviews")
-    backup_interviews(open_interviews)
+    await backup_interviews_to_db(open_interviews)
 
 
 @is_team_member()
@@ -512,7 +518,7 @@ async def open_interview(ctx: commands.Context, member: discord.Member):
     channel_name = "{}-Interview".format(member.name, member.discriminator)
     channel_topic = "Temporary interview room for {}".format(member.name)
     member_role = guild.get_role(guild_settings['member_role_id'])
-    ignore_interview_role:discord.Role = guild.get_role(guild_settings["hide_interviews_id"])
+    ignore_interview_role: discord.Role = guild.get_role(guild_settings["hide_interviews_id"])
 
     ignored_members = ignore_interview_role.members
 
@@ -527,7 +533,7 @@ async def open_interview(ctx: commands.Context, member: discord.Member):
     for ignore_member in ignored_members:
         await interview_channel.set_permissions(ignore_member, read_messages=False)
 
-    interview = open_interviews.new_interview(member, interview_channel)
+    interview = await open_interviews.new_interview(member, interview_channel)
 
     await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=member))
     await interview.start()
@@ -718,8 +724,8 @@ async def on_member_join(member: discord.Member):
         await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=member))
 
         await asyncio.sleep(1)
-        interview = open_interviews.new_interview(member, interview_channel)
-        backup_interviews(open_interviews)
+        interview = await open_interviews.new_interview(member, interview_channel)
+        # await backup_interviews_to_db(open_interviews)
 
         await interview.start()
 
@@ -733,21 +739,32 @@ async def on_member_remove(member: discord.Member):
         if interview is not None:
             message = "{user.name} left {guild.name} before finishing their interview.".format(user=member, guild=member.guild)
             await open_interviews.close_interview(interview)#, message=message)
-            backup_interviews(open_interviews)
+            await backup_interviews_to_db(open_interviews)
 
 
 if __name__ == '__main__':
 
-    with open('config.json') as json_data_file:
+    # with open('config.json') as json_data_file:
+    #     config = json.load(json_data_file)
+    #
+    # with open('guildSettings.json') as json_data_file:
+    #     guild_settings = json.load(json_data_file)
+
+    with open('testConfigs/config.dev.json') as json_data_file:
         config = json.load(json_data_file)
 
-    with open('guildSettings.json') as json_data_file:
+    with open('testConfigs/guildSettings.json') as json_data_file:
         guild_settings = json.load(json_data_file)
 
     open_interviews = Interviews(client, guild_settings)
 
+    client.open_interviews = open_interviews
+    client.db = config['db_address']
     client.command_prefix = config['bot_prefix']
+
+    asyncio.get_event_loop().run_until_complete(db.create_tables(client.db))
     client.run(config['token'])
 
     log.info("cleaning Up and shutting down")
-    backup_interviews(open_interviews)
+    asyncio.get_event_loop().run_until_complete(backup_interviews_to_db(open_interviews))
+    # backup_interviews(open_interviews)

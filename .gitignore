@@ -2,3 +2,6 @@
 venv/
 .idea/
 *.zip
+src/debugCog.py
+src/interview_load_test.py
+*.sqlite
