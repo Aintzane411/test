@@ -31,7 +31,7 @@ class Interview:
     LOG = logging.getLogger("PNBot.Interview")
 
     # Interview Types #
-    UNKNOWN = "unknown"  # Default starting type
+    NOT_STARTED = "not started"  # Default starting type
 
     # Interviews
     NEW_SYSTEM = "new system"
@@ -67,7 +67,7 @@ class Interview:
         self.paused: bool = False
         self.started: bool = False  # Not needed unless we decide to care about automatically resuming listening for reacts after reboot.
 
-        self.interview_type = self.UNKNOWN  # self.NEW_SYSTEM  # Default to new system because why not.
+        self.interview_type = self.NOT_STARTED  # self.NEW_SYSTEM  # Default to new system because why not.
         self.rule_confirmations = []
 
         # Not Persistent
@@ -90,7 +90,7 @@ class Interview:
 
         read_rules = "They have read the rules." if len(self.rule_confirmations) > 0 else "They have NOT read the rules."
 
-        if self.interview_type == self.UNKNOWN:
+        if self.interview_type == self.NOT_STARTED:
             interview_track = "They have not yet selected an interview type."
         elif self.interview_type == self.NEW_SYSTEM:
             interview_track = "They are a new user, taking the system interview."
@@ -132,14 +132,14 @@ class Interview:
         elif self.interview_type == self.OTHER:
             await self.start_other_prompt()
 
-        elif self.interview_type == self.UNKNOWN:
+        elif self.interview_type == self.NOT_STARTED:
             # We should never get here, default to contacting team member.
             await self.start_other_prompt()
 
     async def restart(self):
         self.question_number: int = 0
         self.interview_finished: bool = False
-        self.interview_type = self.UNKNOWN
+        self.interview_type = self.NOT_STARTED
         self.waiting_for_msgs = False
         await self.start()
 
@@ -241,7 +241,7 @@ class Interview:
             await self.start(restarting=True)
 
     async def prompt_to_resume(self):
-        if not self.interview_finished:
+        if not self.interview_finished and self.interview_type != self.NOT_STARTED:
             await self.channel.send("Apologies for the interruption, Please type **{}resume** to continue your interview.".format(self.client.command_prefix))
 
     def dump_dict(self):
@@ -292,8 +292,14 @@ class Interview:
             self.LOG.warning(
                 f"Found channel matching {self.channel_id}({self.channel.name}), but could not find member matching: {self.member_id}!! Corresponding interview will not be loaded!!")
 
+        # Check to see if we were able to successfully load the interview
         if self.member is not None and self.channel is not None:
+
+            # Set the guild id
             self.guild_id = self.channel.guild.id
+
+            # Since we just loaded the interview from the DB it is save to assume that the interview process was iinterrupted
+            # Let the interviewee know he may use the resume command
             await self.prompt_to_resume()
             return self
         else:
