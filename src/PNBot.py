@@ -6,7 +6,7 @@ import json
 import logging
 import asyncio
 import traceback
-from typing import Optional, List
+from typing import Optional, Union, List
 import asyncio
 # from datetime import datetime, timedelta
 import textwrap
@@ -17,9 +17,12 @@ import discord
 from discord.ext import commands
 
 import embeds
-from utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews
+from embeds import std_embed
+
+from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed
 from exceptions import NotTeamMember
 from Interviews import Interviews, Interview
+from uiElements import BoolPage
 
 from PNDiscordBot import PNBot
 import db
@@ -32,44 +35,42 @@ magic_word = "acceptable"
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s")
 log = logging.getLogger("PNBot")
 
-client = PNBot(command_prefix="ib!",
-                      max_messages=5000,
-                      # description="A bot for interviewing new members.\n",
-                      owner_id=389590659335716867,
-                      case_insensitive=True)
+bot = PNBot(command_prefix="ib!",
+            max_messages=5000,
+            # description="A bot for interviewing new members.\n",
+            owner_id=389590659335716867,
+            case_insensitive=True)
 # client.remove_command("help")  # Remove the built in help command so we can make the about section look nicer.
 
 
-@client.event
+@bot.event
 async def on_ready():
     log.info('Connected using discord.py {}!'.format(discord.__version__))
-    log.info('Username: {0.name}, ID: {0.id}'.format(client.user))
-    log.info("Connected to {} servers.".format(len(client.guilds)))
+    log.info('Username: {0.name}, ID: {0.id}'.format(bot.user))
+    log.info("Connected to {} servers.".format(len(bot.guilds)))
 
-    activity = discord.Game("{}help".format(client.command_prefix))
-    await client.change_presence(status=discord.Status.online, activity=activity)
+    activity = discord.Game("{}help".format(bot.command_prefix))
+    await bot.change_presence(status=discord.Status.online, activity=activity)
 
+    # FIXME: On_ready can happen again. Make sure that we do not load multiple instances of Interviews.
     await open_interviews.init_archive_and_log_channel()
 
-    # try:
-    #     with open("./data/interview_dump.json", "r") as json_file:
-    #         await open_interviews.load_json(json_file.read())
-    #         log.info("Loaded {} interviews from backup file.".format(len(open_interviews.interviews)))
-    # except FileNotFoundError:
-    #     log.info("No interview backup file found. Starting with fresh configuration.")
+    all_interviews = await db.get_all_interviews(bot.db)
+    await bot.open_interviews.load_db(all_interviews)
 
-    all_interviews = await db.get_all_interviews(client.db)
-    await client.open_interviews.load_db(all_interviews)
-    log.info("Loaded {} interviews from database.".format(len(client.open_interviews.interviews)))
+    # raid_lvl = await db.
+
+    log.info("Loaded {} interviews from database.".format(len(bot.open_interviews.interviews)))
     log.info('------')
 
 
 def is_team_member():
-    async def predicate(ctx):
+    async def predicate(ctx: commands.Context):
 
         if ctx.guild is None:  # Double check that we are not in a DM.
             raise commands.NoPrivateMessage()
 
+        bot: 'PNBot' = ctx.bot
         author: discord.Member = ctx.author
         role = discord.utils.get(author.roles, id=guild_settings["team_role_id"])
         if role is None:
@@ -89,13 +90,13 @@ def cleanup_code(content):
 
 
 @commands.is_owner()
-@client.command(pass_context=True, hidden=True, name='eval')
+@bot.command(pass_context=True, hidden=True, name='eval')
 async def _eval(ctx, *, body: str):
     """Evaluates a code"""
 
     env = {
         #'bot': self.bot,
-        'client': client,
+        'client': bot,
         'ctx': ctx,
         'channel': ctx.channel,
         'author': ctx.author,
@@ -139,24 +140,26 @@ async def _eval(ctx, *, body: str):
 
 
 @commands.is_owner()
-@client.command(name="test", hidden=True,)
-async def test_cmd(ctx: commands.Context, dump):  # , channel_name: str):
-    return
+@bot.command(name="test", hidden=True, )
+async def test_cmd(ctx: commands.Context):  # , channel_name: str):
+    raid_lvl = await db.get_raid_level(ctx.bot.db, ctx.guild.id)
+    log.info(raid_lvl)
+
+
+
+
+# @commands.is_owner()
+# @bot.command(name="reload_questions")
+# async def reload_questions(ctx):
+#
+#     with open('guildSettings.json') as json_data_file:
+#         global guild_settings
+#         guild_settings = json.load(json_data_file)
+#     ctx.send("Reloaded settings")
 
 
 @commands.is_owner()
-@client.command(name="reload_questions")
-async def reload_questions(ctx):
-
-    with open('guildSettings.json') as json_data_file:
-        global guild_settings
-        guild_settings = json.load(json_data_file)
-    ctx.send("Reloaded settings")
-
-
-
-@commands.is_owner()
-@client.command(name="reset_inter")
+@bot.command(name="reset_inter")
 async def reset_interviews(ctx):
 
     clear_all_interviews()
@@ -164,7 +167,7 @@ async def reset_interviews(ctx):
 
 
 @commands.is_owner()
-@client.command(name="invite")
+@bot.command(name="invite")
 async def invite(ctx: commands.Context):
     """
     Manage Server:
@@ -187,13 +190,82 @@ async def invite(ctx: commands.Context):
     await ctx.send(invite_url)
 
 
+# --- Raid Protection Commands --- #
+raid_protection_desc = [
+    "No protection is enabled.",
+
+    "Members will no longer be able to view the interview channels or the welcome channel."]#,
+
+    # f"Personalized interview channels will no longer be automatically created. Instead greeters will need to create them using the `{bot.command_prefix}open` command.\n"
+    # f"New people joining will be shown a message in the welcome channel that a raid is ongoing and that interviews for any potential legitimate members will be processed as soon as we can get to them.\n"
+    # f"Lastly, a status channel will be created for the team that will help track all members who join. "
+    # f"This will help to prevent any bad actors from hanging around and to prevent any potentially legitimate users from getting missed."
+# ]
+
+
+@is_team_member()
+@commands.guild_only()
+@bot.group(name="raid_level", brief="Sets / shows the level of raid protection.",
+           description="This command allows you to set how aggressive PNBot is at protecting against raids.\n"
+                       "Each level contains it's protections plus all the protections of the levels below it.\n"
+                       "The current options are:\n\n"
+                       f"**0**: {raid_protection_desc[0]}\n"
+                       f"**1**: {raid_protection_desc[1]}\n"
+                       # f"**2**: {raid_protection_desc[2]}"
+           )
+async def raid_protection(ctx: commands.Context):
+    if ctx.invoked_subcommand is None:
+        await ctx.send_help(raid_protection)
+
+
+@is_team_member()
+@commands.guild_only()
+@raid_protection.command(name="set")
+async def set_raid_lvl(ctx: commands.Context, raid_level: int):
+    if 0 <= raid_level < 2:
+        await db.upsert_raid_level(ctx.bot.db, ctx.guild.id, raid_level)
+
+        if raid_level == 0:
+            current_raid_lvl_desc = raid_protection_desc[0]
+        else:
+            current_raid_lvl_desc = ""
+            for i in range(1, raid_level+1):
+                current_raid_lvl_desc += f"{raid_protection_desc[i]}\n"
+
+        msg = f"This servers raid protection level has been set to: **{raid_level}**\n" \
+              f"The following protections are now in place:\n{current_raid_lvl_desc}"
+    else:
+        msg = f"{raid_level} is not a valid option."
+
+    await send_embed(ctx, desc=msg)
+
+
+@is_team_member()
+@commands.guild_only()
+@raid_protection.command(name="show")
+async def show_raid_lvl(ctx: commands.Context):
+    raid_lvl = await db.get_raid_level(ctx.bot.db, ctx.guild.id)
+
+    if raid_lvl == 0:
+        current_raid_lvl_desc = raid_protection_desc[0]
+    else:
+        current_raid_lvl_desc = ""
+        for i in range(1, raid_lvl + 1):
+            current_raid_lvl_desc += f"{raid_protection_desc[i]}\n"
+
+    msg = f"The current raid protection level is: **{raid_lvl}**\n" \
+          f"The following protections are now in place:\n{current_raid_lvl_desc}"
+
+    await send_embed(ctx, desc=msg)
+
+
 # --- Configuration Commands --- #
 
 # @commands.has_permissions(manage_messages=True)
 @commands.is_owner()  # TODO: Test and set back to allow w/ manage message
 @commands.guild_only()
-@client.group(name="set_msg", brief="Lets you set configurable messages.",
-              description="Lets you set configurable messages.")
+@bot.group(name="set_msg", brief="Lets you set configurable messages.",
+           description="Lets you set configurable messages.")
 async def set_msg(ctx: commands.Context):
     if ctx.invoked_subcommand is None:
         await ctx.send_help(set_msg)
@@ -256,8 +328,8 @@ async def set_approved_message(ctx: commands.Context, *, message: Optional[str] 
 # @commands.has_permissions(manage_messages=True)
 @commands.is_owner()  # TODO: Test and set back to allow w/ manage message
 @commands.guild_only()
-@client.group(name="questions", brief="Display / modify interview questions.",
-                   description="Lets you see the list of current questions, add new questions, modify current questions, remove questions, and reorder questions.\n")
+@bot.group(name="questions", brief="Display / modify interview questions.",
+           description="Lets you see the list of current questions, add new questions, modify current questions, remove questions, and reorder questions.\n")
 async def questions_cmd(ctx: commands.Context):
     if ctx.invoked_subcommand is None:
         await ctx.send_help(questions_cmd)
@@ -305,7 +377,7 @@ async def remove_question(ctx: commands.Context):
         def check(m):
             return m.author.id == ctx.author.id
         try:
-            msg = await client.wait_for('message', timeout=120.0, check=check)
+            msg = await bot.wait_for('message', timeout=120.0, check=check)
             try:
                 question_number = int(msg.content)
                 if question_number > 0 and question_number <= num_of_questions:
@@ -352,7 +424,7 @@ async def remove_question(ctx: commands.Context):
 
 
 @commands.is_owner()
-@client.command(name="dump")
+@bot.command(name="dump")
 async def dump_interviews(ctx: commands.Context):
     log.info("Dumping interviews")
     await backup_interviews_to_db(open_interviews)
@@ -360,7 +432,7 @@ async def dump_interviews(ctx: commands.Context):
 
 @is_team_member()
 @commands.guild_only()
-@client.command(name="status", brief="Display the status of ongoing interviews")
+@bot.command(name="status", brief="Display the status of ongoing interviews")
 async def status_of_interviews(ctx: commands.Context):
 
     if len(open_interviews.interviews) > 0:
@@ -373,9 +445,9 @@ async def status_of_interviews(ctx: commands.Context):
 
 @is_team_member()
 @commands.guild_only()
-@client.command(name="greet", brief="Closes the interview and gives them the member role.",
-                description="Closes the interview and gives them the member role.\n"
-                            " If the user is an alt-account, the original account should be @ed in the greet command.", usage="[@alt-Account]")
+@bot.command(name="greet", brief="Closes the interview and gives them the member role.",
+             description="Closes the interview and gives them the member role.\n"
+                         " If the user is an alt-account, the original account should be @ed in the greet command.", usage="[@alt-Account]")
 async def approve_user(ctx: commands.Context, alt_account: Optional[discord.Member] = None):
 
     guild: discord.Guild = ctx.guild
@@ -395,20 +467,45 @@ async def approve_user(ctx: commands.Context, alt_account: Optional[discord.Memb
 async def approve_existing_user(ctx: commands.Context, interview, alt_account: Optional[discord.Member]):
 
     # User is an alt-account and thus does not need to read the rules again.
+    conf_msg = None
     if alt_account is None:
-        await ctx.channel.send("No valid member account was specified!"
-                               " When greeting an alt-account, the related account must be included in the greet command.")  # TODO: Improve this error message
-        return
+        conf_msg = "No valid member account was specified!" \
+                   " When greeting an alt-account, the related account must be included in the greet command."  # TODO: Improve this error message
 
-    if alt_account.id == interview.member.id:
-        await ctx.channel.send(
-            "Can not greet alt-account, the member specified is the same as the member you are trying to greet! "
-            "When greeting an alt-account, the related account must be included in the greet command.")  # TODO: Improve this error message
-        return  # TODO: Add override option.
+    if alt_account is not None and alt_account.id == interview.member.id:
+        conf_msg = "Can not greet alt-account, the member specified is the same as the member you are trying to greet! " \
+                   "When greeting an alt-account, the related account must be included in the greet command."  # TODO: Improve this error message
+
+    if conf_msg is not None:
+        conf_page = BoolPage(body=f"{conf_msg}\nDo you wish to greet {interview.member.display_name} anyways?")
+        if not await conf_page.run(ctx):
+            await ctx.send("Command Canceled.")
+            return
+
+    await greet_user(ctx, interview, alt_account)
+
+
+async def approve_new_user(ctx: commands.Context, interview, alt_account: Optional[discord.Member]):
+    # TODO: This might be able to crash if we have someone who has a high role than the bot.
+
+    if len(interview.rule_confirmations) <= 0:
+        confirmation = BoolPage(name=None,
+                                body="⚠ It does not appear that {} has read the rules yet. Do you wish to approve them anyways?".format(
+                                    interview.member.display_name))
+        response = await confirmation.run(ctx)
+        if response is None or not response:
+            await ctx.channel.send("Okay.")
+            return
+
+    await greet_user(ctx, interview, alt_account)
+    return
+
+
+async def greet_user(ctx: commands.Context, interview, alt_account: Optional[discord.Member]):
+    """Gives the user the Member role, sends a welcome message, logs the greet, then closes the interview """
 
     await interview.member.add_roles(SnowFlake(guild_settings['member_role_id']),
-                                     reason="The user was granted membership by {}#{}.".format(
-                                         ctx.author.display_name, ctx.author.discriminator))
+                                     reason="The user was granted membership by {}#{}.".format(ctx.author.display_name, ctx.author.discriminator))
     await ctx.channel.send(guild_settings['approved_message'].format(guild=ctx.guild, user=interview.member))
 
     embed = embeds.log_greet(guild_settings['member_role_id'], interview.member, ctx.author, alt_account)
@@ -417,70 +514,40 @@ async def approve_existing_user(ctx: commands.Context, interview, alt_account: O
     return
 
 
-async def approve_new_user(ctx: commands.Context, interview, alt_account: Optional[discord.Member]):#: Interview):
-    # TODO: This might be able to crash if we have someone who has a high role than the bot.
-    if len(interview.rule_confirmations) > 0:
-        await interview.member.add_roles(SnowFlake(guild_settings['member_role_id']),
-                                         reason="The user was granted membership by {}#{}.".format(
-                                             ctx.author.display_name, ctx.author.discriminator))
-        await ctx.channel.send(guild_settings['approved_message'].format(guild=ctx.guild, user=interview.member))
-        embed = embeds.log_greet(guild_settings['member_role_id'], interview.member, ctx.author, alt_account)
-        await open_interviews.log_channel.send(embed=embed)
-        await open_interviews.close_interview(interview)
-        return
-    else:
-        conf_message = await ctx.channel.send(
-            "⚠ It does not appear that {} has read the rules yet. Do you wish to approve them anyways?".format(
-                interview.member.display_name))
-
-        await conf_message.add_reaction("✅")
-        await conf_message.add_reaction("❌")
-
-        def check(reaction, user):
-            return user == ctx.author and (str(reaction.emoji) == '✅' or str(reaction.emoji) == '❌')
-
-
-        try:
-            reaction, user = await client.wait_for('reaction_add', timeout=90.0, check=check)
-            if str(reaction.emoji) == '✅':
-                await interview.member.add_roles(SnowFlake(guild_settings['member_role_id']),
-                                                 reason="The user was granted membership by {}#{}.".format(
-                                                     ctx.author.display_name, ctx.author.discriminator))
-                await ctx.channel.send(guild_settings['approved_message'].format(guild=ctx.guild, user=interview.member))
-
-                embed = embeds.log_greet(guild_settings['member_role_id'], interview.member, ctx.author, alt_account)
-                await open_interviews.log_channel.send(embed=embed)
-                await open_interviews.close_interview(interview)
-                return
-            elif str(reaction.emoji) == '❌':
-                await ctx.channel.send("Okay.")
-            else:
-                await ctx.channel.send("Error. we should never reach this code.!!!!! Near 136 ")
-        except asyncio.TimeoutError:
-            await conf_message.remove_reaction("❌", client.user)
-            await conf_message.remove_reaction("✅", client.user)
-
-
 @is_team_member()
 @commands.guild_only()
-@client.command(name="reject", brief="Closes the interview and sends a message saying that the user is not a good fix for the server.")
-async def reject_user(ctx: commands.Context):
+@bot.command(name="deny", brief="Closes the interview, then kicks the user after 5 minutes.",
+             description="This command closes the interview, sends a message explaining that the user is not a good fit for the server, then after 5 minutes kicks the user from the server.\n"
+                         "Must be used in an active interview channel.")
+async def deny_user(ctx: commands.Context):
 
     guild: discord.Guild = ctx.guild
     interview_channel: discord.TextChannel = ctx.channel
 
     interview = open_interviews.get_by_channel_id(interview_channel.id)
     if interview is None:
-        await ctx.channel.send("No interview is open in this channel!")
+        await ctx.send("No interview is open in this channel!")
         return
 
-    await ctx.channel.send(guild_settings['rejection_message'].format(guild=guild, user=interview.member))
-    await open_interviews.close_interview(interview)
+    conf_msg = BoolPage(name="Are you sure?")
+    await conf_msg.run(ctx)
+    if conf_msg.response:
+        await ctx.send(guild_settings['rejection_message'].format(guild=guild, user=interview.member))
+
+        embed = embeds.log_deny(interview.member, ctx.author)
+        await open_interviews.log_channel.send(embed=embed)
+        await open_interviews.close_interview(interview)
+
+        log.info(f"Automatically kicking {interview.member}")
+
+        await interview.member.kick(reason=f"User was kicked because they were denied membership by {ctx.author.display_name}")
+    else:
+        await ctx.send("Command Canceled")
 
 
 @is_team_member()
 @commands.guild_only()
-@client.command(name="close", brief="Closes the interview. Gives no roles and sends no acceptance or rejection message. Will probably not be used.")
+@bot.command(name="close", brief="Closes the interview. Gives no roles and sends no acceptance or rejection message.")
 async def close_interview(ctx: commands.Context, member: Optional[discord.Member] = None):
     #Do we need this? Should it be renamed? What's it's ultimate purpose?
 
@@ -504,7 +571,7 @@ async def close_interview(ctx: commands.Context, member: Optional[discord.Member
 
 @is_team_member()
 @commands.guild_only()
-@client.command(name="open", brief="Manually open an interview for a member. Probably will not be used.", usage='[User Account]')
+@bot.command(name="open", brief="Manually open an interview channel for a user.", usage='[User Account]')
 async def open_interview(ctx: commands.Context, member: discord.Member):
 
     interview = open_interviews.get_by_member(member.id)
@@ -513,35 +580,13 @@ async def open_interview(ctx: commands.Context, member: discord.Member):
         return
 
     guild: discord.Guild = ctx.guild
-    interview_category = await get_category(guild, guild_settings['interview_category_id'])
-
-    channel_name = "{}-Interview".format(member.name, member.discriminator)
-    channel_topic = "Temporary interview room for {}".format(member.name)
-    member_role = guild.get_role(guild_settings['member_role_id'])
-    ignore_interview_role: discord.Role = guild.get_role(guild_settings["hide_interviews_id"])
-
-    ignored_members = ignore_interview_role.members
-
-    interview_channel = await guild.create_text_channel(channel_name, category=interview_category,
-                                                        topic=channel_topic)  # , overwrites=permissions)
-
-    await interview_channel.set_permissions(ignore_interview_role, send_messages=False, read_messages=False)
-    await interview_channel.set_permissions(guild.default_role, send_messages=False, read_messages=True)
-    await interview_channel.set_permissions(member_role, send_messages=False, read_messages=True)
-    await interview_channel.set_permissions(member, send_messages=True, read_messages=True)
-
-    for ignore_member in ignored_members:
-        await interview_channel.set_permissions(ignore_member, read_messages=False)
-
-    interview = await open_interviews.new_interview(member, interview_channel)
-
-    await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=member))
-    await interview.start()
+    current_raid_lvl = await db.get_raid_level(bot.db, member.guild.id)
+    await create_interview(guild, member, current_raid_lvl)
 
 
 @is_team_member()
 @commands.guild_only()
-@client.command(name="restart", brief="Restarts the interview.", usage='<User Account>')
+@bot.command(name="restart", brief="Restarts the interview.", usage='<User Account>')
 async def restart_interview(ctx: commands.Context, member: Optional[discord.Member] = None):
 
     guild: discord.Guild = ctx.guild
@@ -558,12 +603,11 @@ async def restart_interview(ctx: commands.Context, member: Optional[discord.Memb
             await ctx.channel.send("User {} has no open interview!".format(member.display_name))
             return
 
-    # await ctx.channel.send("Closing interview.".format(interview.member.display_name))
     await interview.restart()
 
 
 @commands.guild_only()
-@client.command(name="pause", brief="Pauses the interview.")
+@bot.command(name="pause", brief="Pauses the interview.")
 async def pause_interview(ctx: commands.Context):
 
     interview_channel: discord.TextChannel = ctx.channel
@@ -578,7 +622,7 @@ async def pause_interview(ctx: commands.Context):
 
 # TODO: Interviewies need to be able to use this command.
 @commands.guild_only()
-@client.command(name="resume", brief="Resumes the interview.")
+@bot.command(name="resume", brief="Resumes the interview.")
 async def resume_interview(ctx: commands.Context):
     interview_channel: discord.TextChannel = ctx.channel
 
@@ -589,18 +633,9 @@ async def resume_interview(ctx: commands.Context):
 
     await interview.resume()
 
-#
-# @is_team_member()
-# @commands.guild_only()
-# @client.command(name="force_archive", brief="Forces a channel to be archived. Used when bot messes up.",
-#                 description="Closes the interview (if one is even loaded in memory) then archives the channel.\n"
-#                             "This command is only to be used if the bot has messed up and there is an interview channel present that the bot does not know about.", usage="[@alt-Account and/or #channel-name]")
-# async def force_archive(ctx: commands.Context, alt_account: Optional[discord.Member] = None):
-#     pass
-#
 
 # ---- Command Error Handling ----- #
-@client.event
+@bot.event
 async def on_command_error(ctx, error):
     if type(error) == discord.ext.commands.NoPrivateMessage:
         await ctx.send("⚠ This command can not be used in DMs!!!")
@@ -624,10 +659,10 @@ async def on_command_error(ctx, error):
 
 
 # ----- Discord Events ----- #
-@client.event
+@bot.event
 async def on_message(message: discord.Message):
 
-    if message.author.id != client.user.id:  # Don't log our own messages.
+    if message.author.id != bot.user.id:  # Don't log our own messages.
 
         message_contents = message.content if message.content != '' else None
         found = False
@@ -642,24 +677,24 @@ async def on_message(message: discord.Message):
 
             interview = open_interviews.get_by_member(author.id)
             if interview is None:
-                await client.process_commands(message)
+                await bot.process_commands(message)
                 return
 
             log.info("{} confirmed reading the rules: {}".format(interview.member.display_name, message_contents))
 
             possible_rule_confirmation = message_contents
-            interview.rule_confirmations.append(possible_rule_confirmation)
+            await interview.append_rule_confirmations(possible_rule_confirmation)
 
-    await client.process_commands(message)
+    await bot.process_commands(message)
 
 
-@client.event
+@bot.event
 async def on_error(event_name, *args):
     log.exception("Exception from event {}".format(event_name))
 
     if 'error_log_channel' not in config:
         return
-    error_log_channel = client.get_channel(config['error_log_channel'])
+    error_log_channel = bot.get_channel(config['error_log_channel'])
 
     embed = None
     # Determine if we can get_by_member more info, otherwise post without embed
@@ -684,53 +719,74 @@ async def get_category(guild: discord.Guild, category_id: int) -> discord.Catego
     raise Exception("Category {} is not in guild {}".format(category_id, guild.id))  # TODO: Don't use base exception.
 
 
-@client.event
+async def handle_joining_user(guild: discord.Guild, member: discord.Member, raid_level: int):
+    """
+    Based on the current raid protection level, either start the interview as normal, or do what else is required based on current raid level.
+    """
+    if raid_level <= 1:
+        await create_interview(guild, member, raid_level)
+    else:
+        pass
+
+
+async def create_interview(guild: discord.Guild, member: discord.Member, raid_level: int = 0):
+    """
+    Creates an interview channel for a given member, then starts the interview.
+    """
+
+    interview_category: discord.CategoryChannel = await get_category(guild, guild_settings['interview_category_id'])
+
+    channel_name = "{}-Interview".format(member.name, member.discriminator)
+    channel_topic = "Temporary interview room for {}".format(member.name)
+    member_role = guild.get_role(guild_settings['member_role_id'])
+    ignore_interview_role: discord.Role = guild.get_role(guild_settings["hide_interviews_id"])
+    greeter_role = guild.get_role(guild_settings['team_role_id'])
+
+    new_perms = category_perms = interview_category.overwrites  # Inherit perms from the category.
+
+    new_perms[greeter_role] = discord.PermissionOverwrite(send_messages=True, read_messages=True)  # Greeters
+    new_perms[member] = discord.PermissionOverwrite(send_messages=True, read_messages=True)  # The user who just joined
+    new_perms[ignore_interview_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # Does nothing on Nest...
+
+    # Add role overrides for any user with the ignore_interview role
+    ignored_members = ignore_interview_role.members
+    for ignore_member in ignored_members:
+        new_perms[ignore_member] = discord.PermissionOverwrite(send_messages=False, read_messages=False)
+
+    if raid_level == 0:  # No Raid Protection Enabled.
+        new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=False, read_messages=True)  # @Everyone
+        new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=True)  # The Member Role
+
+    else:  # Raid Protection Enabled
+        new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # @Everyone
+        new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # The Member Role
+
+    # Create the channel
+    interview_channel = await guild.create_text_channel(channel_name, category=interview_category,
+                                                        topic=channel_topic, overwrites=new_perms)
+
+    await asyncio.sleep(1)  # Wait a sec after the channel is created before sending anything.
+
+    await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=member))
+
+    await asyncio.sleep(1)  # Wait another sec before opening the interview.
+
+    # Open the interview.
+    interview = await open_interviews.new_interview(member, interview_channel)
+
+
+@bot.event
 async def on_member_join(member: discord.Member):
     event_type = "member_join"
     log.info("{}#{} Joined".format(member.name, member.discriminator))
     if not member.bot:
         # Create temp interview channel
         guild: discord.Guild = member.guild
-
-        interview_category = await get_category(guild, guild_settings['interview_category_id'])
-
-        channel_name = "{}-Interview".format(member.name, member.discriminator)
-        channel_topic = "Temporary interview room for {}".format(member.name)
-        member_role = guild.get_role(guild_settings['member_role_id'])
-        ignore_interview_role = guild.get_role(guild_settings["hide_interviews_id"])
-        ignore_interview_role: discord.Role = guild.get_role(guild_settings["hide_interviews_id"])
-
-        # greeter_role = guild.get_role(guild_settings['team_role_id'])
-        # permissions = {
-        #     guild.default_role: discord.PermissionOverwrite(send_messages=False),
-        #     member_role: discord.PermissionOverwrite(send_messages=False),
-        #     greeter_role: discord.PermissionOverwrite(send_messages=True),
-        #     member: discord.PermissionOverwrite(send_messages=True)
-        # }
-        interview_channel = await guild.create_text_channel(channel_name, category=interview_category,
-                                                            topic=channel_topic)  # , overwrites=permissions)
-
-        await interview_channel.set_permissions(ignore_interview_role, send_messages=False, read_messages=False)
-        await interview_channel.set_permissions(guild.default_role, send_messages=False, read_messages=True)
-        await interview_channel.set_permissions(member_role, send_messages=False, read_messages=True)
-        await interview_channel.set_permissions(member, send_messages=True, read_messages=True)
-
-        ignored_members = ignore_interview_role.members
-        for ignore_member in ignored_members:
-            await interview_channel.set_permissions(ignore_member, read_messages=False)
-
-        await asyncio.sleep(1)
-
-        await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=member))
-
-        await asyncio.sleep(1)
-        interview = await open_interviews.new_interview(member, interview_channel)
-        # await backup_interviews_to_db(open_interviews)
-
-        await interview.start()
+        current_raid_lvl = await db.get_raid_level(bot.db, member.guild.id)
+        await create_interview(guild, member, current_raid_lvl)
 
 
-@client.event
+@bot.event
 async def on_member_remove(member: discord.Member):
     event_type = "member_leave"
 
@@ -738,32 +794,52 @@ async def on_member_remove(member: discord.Member):
         interview = open_interviews.get_by_member(member_id=member.id)
         if interview is not None:
             message = "{user.name} left {guild.name} before finishing their interview.".format(user=member, guild=member.guild)
-            await open_interviews.close_interview(interview)#, message=message)
+            await open_interviews.close_interview(interview, message=message)
             await backup_interviews_to_db(open_interviews)
 
 
-if __name__ == '__main__':
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
+    interview = bot.open_interviews.get_by_channel_id(payload.channel_id)
+    if interview is not None:
+        await interview.check_add_reactions(payload)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+
+    interview = bot.open_interviews.get_by_channel_id(payload.channel_id)
+    if interview is not None:
+        await interview.check_remove_reactions(payload)
+
+if __name__ == '__main__':
+    #
     # with open('config.json') as json_data_file:
     #     config = json.load(json_data_file)
     #
     # with open('guildSettings.json') as json_data_file:
     #     guild_settings = json.load(json_data_file)
+    #     bot.primary_guild_id = 433446063022538753
+    #     # bot.load_guild_settings(433446063022538753, guild_settings)  # PN Server.
 
     with open('testConfigs/config.dev.json') as json_data_file:
         config = json.load(json_data_file)
 
     with open('testConfigs/guildSettings.json') as json_data_file:
         guild_settings = json.load(json_data_file)
+        bot.primary_guild_id = 641244873902784522
+        # bot.load_guild_settings(641244873902784522, guild_settings)  # Test Server.
 
-    open_interviews = Interviews(client, guild_settings)
+    bot.db = config['db_address']
+    asyncio.get_event_loop().run_until_complete(db.create_tables(bot.db))
 
-    client.open_interviews = open_interviews
-    client.db = config['db_address']
-    client.command_prefix = config['bot_prefix']
+    open_interviews = Interviews(bot, guild_settings)  # ToDo: open_interviews should be a class member of bot.
+    bot.open_interviews = open_interviews
 
-    asyncio.get_event_loop().run_until_complete(db.create_tables(client.db))
-    client.run(config['token'])
+    bot.command_prefix = config['bot_prefix']
+    bot.load_cogs()
+    bot.run(config['token'])
 
     log.info("cleaning Up and shutting down")
     asyncio.get_event_loop().run_until_complete(backup_interviews_to_db(open_interviews))

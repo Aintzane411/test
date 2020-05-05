@@ -6,7 +6,7 @@ import functools
 from datetime import datetime
 from typing import Optional, List, Dict
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("PNBot.db")
 
 
 def db_deco(func):
@@ -54,56 +54,56 @@ async def add_new_interview(db: str, sid: int, member_id: int, username: str, ch
 
 # --- Updates --- #
 @db_deco
-async def update_interview_all_mutable(db: str, sid: int, mid: int, question_number: int, interview_finished: bool, paused: bool, interview_type: str, read_rules: bool):
+async def update_interview_all_mutable(db: str, cid: int, mid: int, question_number: int, interview_finished: bool, paused: bool, interview_type: str, read_rules: bool):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "UPDATE interviews SET question_number = ?, interview_finished = ?, paused = ?, interview_type = ?, read_rules = ? WHERE guild_id = ? AND member_id = ?",
-            (question_number, interview_finished, paused, interview_type, read_rules, sid, mid))
+            "UPDATE interviews SET question_number = ?, interview_finished = ?, paused = ?, interview_type = ?, read_rules = ? WHERE channel_id = ? AND member_id = ?",
+            (question_number, interview_finished, paused, interview_type, read_rules, cid, mid))
         await conn.commit()
 
 
 @db_deco
-async def update_interview_question_number(db: str, sid: int, mid: int, question_number: int):
+async def update_interview_question_number(db: str, cid: int, mid: int, question_number: int):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "UPDATE interviews SET question_number = ? WHERE guild_id = ? AND member_id = ?",
-            (question_number, sid, mid))
+            "UPDATE interviews SET question_number = ? WHERE channel_id = ? AND member_id = ?",
+            (question_number, cid, mid))
         await conn.commit()
 
 
 @db_deco
-async def update_interview_finished(db: str, sid: int, mid: int, interview_finished: bool):
+async def update_interview_finished(db: str, cid: int, mid: int, interview_finished: bool):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "UPDATE interviews SET interview_finished = ? WHERE guild_id = ? AND member_id = ?",
-            (interview_finished, sid, mid))
+            "UPDATE interviews SET interview_finished = ? WHERE channel_id = ? AND member_id = ?",
+            (interview_finished, cid, mid))
         await conn.commit()
 
 
 @db_deco
-async def update_interview_paused(db: str, sid: int, mid: int, paused: bool):
+async def update_interview_paused(db: str, cid: int, mid: int, paused: bool):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "UPDATE interviews SET paused = ? WHERE guild_id = ? AND member_id = ?",
-            (paused, sid, mid))
+            "UPDATE interviews SET paused = ? WHERE channel_id = ? AND member_id = ?",
+            (paused, cid, mid))
         await conn.commit()
 
 
 @db_deco
-async def update_interview_type(db: str, sid: int, mid: int, interview_type: str):
+async def update_interview_type(db: str, cid: int, mid: int, interview_type: str):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "UPDATE interviews SET interview_type = ? WHERE guild_id = ? AND member_id = ?",
-            (interview_type, sid, mid))
+            "UPDATE interviews SET interview_type = ? WHERE channel_id = ? AND member_id = ?",
+            (interview_type, cid, mid))
         await conn.commit()
 
 
 @db_deco
-async def update_interview_read_rules(db: str, sid: int, mid: int, read_rules: bool):
+async def update_interview_read_rules(db: str, cid: int, mid: int, read_rules: bool):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "UPDATE interviews SET read_rules = ? WHERE guild_id = ? AND member_id = ?",
-            (read_rules, sid, mid))
+            "UPDATE interviews SET read_rules = ? WHERE channel_id = ? AND member_id = ?",
+            (read_rules, cid, mid))
         await conn.commit()
 
 
@@ -128,26 +128,28 @@ def row_to_interview_dict(row: aiosqlite.Row) -> Dict:
     return interview_dict
 
 
-@db_deco
-async def get_interview_by_member(db: str, member_id: int):
-    async with aiosqlite.connect(db) as conn:
-        cursor = await conn.execute(" SELECT * from interviews WHERE member_id = ?", (member_id,))
-        row = await cursor.fetchone()
-        # interview_dict = dict(zip(interview_row_map, row))
-
-        return row_to_interview_dict(row)
 
 
-@db_deco
-async def get_all_interview_for_guild(db: str, sid: int):
-    async with aiosqlite.connect(db) as conn:
-        cursor = await conn.execute(" SELECT * from interviews WHERE guild_id = ?", (sid,))
-        raw_rows = await cursor.fetchall()
-        # rows = [dict(zip(interview_row_map, row)) for row in raw_rows]
-        rows = []
-        for row in raw_rows:
-            rows.append(row_to_interview_dict(row))
-        return rows
+# @db_deco
+# async def get_interview_by_member(db: str, member_id: int):
+#     async with aiosqlite.connect(db) as conn:
+#         cursor = await conn.execute(" SELECT * from interviews WHERE member_id = ?", (member_id,))
+#         row = await cursor.fetchone()
+#         # interview_dict = dict(zip(interview_row_map, row))
+#
+#         return row_to_interview_dict(row)
+#
+#
+# @db_deco
+# async def get_all_interview_for_guild(db: str, sid: int):
+#     async with aiosqlite.connect(db) as conn:
+#         cursor = await conn.execute(" SELECT * from interviews WHERE guild_id = ?", (sid,))
+#         raw_rows = await cursor.fetchall()
+#         # rows = [dict(zip(interview_row_map, row)) for row in raw_rows]
+#         rows = []
+#         for row in raw_rows:
+#             rows.append(row_to_interview_dict(row))
+#         return rows
 
 
 @db_deco
@@ -164,13 +166,54 @@ async def get_all_interviews(db: str):
 
 # --- Deletes --- #
 @db_deco
-async def delete_interview(db: str, sid: int, mid: int):
+async def delete_interview(db: str, cid: int, mid: int):
     async with aiosqlite.connect(db) as conn:
         await conn.execute(
-            "DELETE FROM interviews WHERE guild_id = ? AND member_id = ?",
-            (sid, mid))
+            "DELETE FROM interviews WHERE channel_id = ? AND member_id = ?",
+            (cid, mid))
         await conn.commit()
 
+
+# --- Guild Settings --- #
+
+@db_deco
+async def do_guild_settings_exist(db: str, sid: int) -> bool:
+    async with aiosqlite.connect(db) as conn:
+        cursor = await conn.execute(
+            """
+            SELECT COUNT(*) FROM guild_settings WHERE guild_id = ?
+            """, (sid,)
+        )
+        row = await cursor.fetchone()
+        if row is not None and row[0] > 0:
+            return True
+        else:
+            return False
+
+@db_deco
+async def upsert_raid_level(db: str, sid: int, raid_level: int):
+    async with aiosqlite.connect(db) as conn:
+        if await do_guild_settings_exist(db, sid):
+            await conn.execute("UPDATE guild_settings SET raid_level = ? WHERE guild_id = ?", (raid_level, sid))
+        else:
+            await conn.execute("INSERT INTO guild_settings(guild_id, raid_level) VALUES(?, ?)", (sid, raid_level)
+            # ON CONFLICT(guild_id)
+            # DO UPDATE SET raid_level = EXCLUDED.raid_level
+            )
+        await conn.commit()
+
+
+@db_deco
+async def get_raid_level(db: str, sid: int) -> int:
+    async with aiosqlite.connect(db) as conn:
+        cursor = await conn.execute(" SELECT * from guild_settings WHERE guild_id = ?", (sid,))
+        row = await cursor.fetchone()
+        # interview_dict = dict(zip(interview_row_map, row))
+
+        if row is not None:
+            return row[1]
+        else:
+            return 0
 
 # ---------- Table Creation ---------- #
 @db_deco
@@ -188,8 +231,16 @@ async def create_tables(db: str):
                                paused               BOOLEAN default FALSE,
                                interview_type       TEXT default 'unknown',   
                                read_rules           BOOLEAN default FALSE,
-                               join_ts              TIMESTAMP,
-                               PRIMARY KEY          (member_id, guild_id)
+                               join_ts              TEXT,
+                               PRIMARY KEY          (member_id, channel_id)
+                              );
+                        ''')
+
+        await conn.execute('''
+                               CREATE TABLE if not exists guild_settings (
+                               guild_id                 BIGINT NOT NULL,
+                               raid_level               INT DEFAULT 0,
+                               PRIMARY KEY              (guild_id)
                               );
                         ''')
 

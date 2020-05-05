@@ -8,6 +8,8 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+from utilities.moreColors import pn_orange
+
 log = logging.getLogger("PNBot")
 
 
@@ -74,6 +76,22 @@ async def get_webhook(client: commands.Bot, channel: discord.TextChannel) -> dis
         webhook = await channel.create_webhook(name="PNestBot", reason="Creating webhook for PNest Interview Bot")
 
     return webhook
+
+
+async def send_embed(ctx: commands.Context, title: Optional[str] = None, desc: Optional[str] = None, color: Optional[discord.Color] = None, content: Optional[str] = None):
+    """Constructs and sends a basic embed."""
+    if title is None:
+        title = discord.embeds.EmptyEmbed
+
+    if desc is None:
+        desc = discord.embeds.EmptyEmbed
+
+    if color is None:
+        color = pn_orange()
+
+    embed = discord.Embed(title=title, description=desc, color=color)
+    await ctx.send(content=content, embed=embed)
+
 
 
 class GuildSettings:
