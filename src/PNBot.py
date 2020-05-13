@@ -16,16 +16,18 @@ from contextlib import redirect_stdout
 import discord
 from discord.ext import commands
 
+import asyncpg
+
 import embeds
 from embeds import std_embed
 
-from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed
+from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed, is_team_member
 from exceptions import NotTeamMember
 from Interviews import Interviews, Interview
 from uiElements import BoolPage
 
 from PNDiscordBot import PNBot
-import db
+import pDB
 
 ZERO_WIDTH_CHAR = " ‌‌‌ "
 TRIANGLE_EMOJI = "⚠ "
@@ -55,7 +57,7 @@ async def on_ready():
     # FIXME: On_ready can happen again. Make sure that we do not load multiple instances of Interviews.
     await open_interviews.init_archive_and_log_channel()
 
-    all_interviews = await db.get_all_interviews(bot.db)
+    all_interviews = await pDB.get_all_interviews(bot.db)
     await bot.open_interviews.load_db(all_interviews)
 
     # raid_lvl = await db.
@@ -128,7 +130,7 @@ async def _eval(ctx, *, body: str):
 @commands.is_owner()
 @bot.command(name="test", hidden=True, )
 async def test_cmd(ctx: commands.Context):  # , channel_name: str):
-    raid_lvl = await db.get_raid_level(ctx.bot.db, ctx.guild.id)
+    raid_lvl = await pDB.get_raid_level(ctx.bot.db, ctx.guild.id)
     log.info(raid_lvl)
 
 
@@ -209,7 +211,7 @@ async def raid_protection(ctx: commands.Context):
 @raid_protection.command(name="set")
 async def set_raid_lvl(ctx: commands.Context, raid_level: int):
     if 0 <= raid_level < 2:
-        await db.upsert_raid_level(ctx.bot.db, ctx.guild.id, raid_level)
+        await pDB.upsert_raid_level(ctx.bot.db, ctx.guild.id, raid_level)
 
         if raid_level == 0:
             current_raid_lvl_desc = raid_protection_desc[0]
@@ -230,7 +232,7 @@ async def set_raid_lvl(ctx: commands.Context, raid_level: int):
 @commands.guild_only()
 @raid_protection.command(name="show")
 async def show_raid_lvl(ctx: commands.Context):
-    raid_lvl = await db.get_raid_level(ctx.bot.db, ctx.guild.id)
+    raid_lvl = await pDB.get_raid_level(ctx.bot.db, ctx.guild.id)
 
     if raid_lvl == 0:
         current_raid_lvl_desc = raid_protection_desc[0]
@@ -566,7 +568,7 @@ async def open_interview(ctx: commands.Context, member: discord.Member):
         return
 
     guild: discord.Guild = ctx.guild
-    current_raid_lvl = await db.get_raid_level(bot.db, member.guild.id)
+    current_raid_lvl = await pDB.get_raid_level(bot.db, member.guild.id)
     await create_interview(guild, member, current_raid_lvl)
 
 
@@ -768,7 +770,7 @@ async def on_member_join(member: discord.Member):
     if not member.bot:
         # Create temp interview channel
         guild: discord.Guild = member.guild
-        current_raid_lvl = await db.get_raid_level(bot.db, member.guild.id)
+        current_raid_lvl = await pDB.get_raid_level(bot.db, member.guild.id)
         await create_interview(guild, member, current_raid_lvl)
 
 
@@ -807,7 +809,7 @@ if __name__ == '__main__':
     # with open('guildSettings.json') as json_data_file:
     #     guild_settings = json.load(json_data_file)
     #     bot.primary_guild_id = 433446063022538753
-    #     # bot.load_guild_settings(433446063022538753, guild_settings)  # PN Server.
+    #     bot.load_guild_settings(433446063022538753, guild_settings)  # PN Server.
 
     with open('testConfigs/config.dev.json') as json_data_file:
         config = json.load(json_data_file)
@@ -817,8 +819,11 @@ if __name__ == '__main__':
         bot.primary_guild_id = 641244873902784522
         bot.load_guild_settings(641244873902784522, guild_settings)  # Test Server.
 
-    bot.db = config['db_address']
-    asyncio.get_event_loop().run_until_complete(db.create_tables(bot.db))
+    # bot.db = config['db_address']
+    db_pool: asyncpg.pool.Pool = asyncio.get_event_loop().run_until_complete(pDB.create_db_pool(config['db_address']))
+    bot.db = db_pool
+
+    asyncio.get_event_loop().run_until_complete(pDB.create_tables(bot.db))
 
     open_interviews = Interviews(bot, guild_settings)  # ToDo: open_interviews should be a class member of bot.
     bot.open_interviews = open_interviews

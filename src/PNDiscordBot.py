@@ -4,12 +4,15 @@ import sys
 import logging
 import traceback
 
-from typing import Optional, Dict
+from typing import TYPE_CHECKING, Optional, Dict
 
 import discord
 from discord.ext import commands
 
 from Interviews import Interviews
+
+if TYPE_CHECKING:
+    import asyncpg
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ class PNBot(commands.Bot):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.db: Optional[str] = None
+        self.db: Optional[asyncpg.pool.Pool] = None
         self.open_interviews: Optional[Interviews] = None
         self._guild_settings: Dict[int, Dict] = {}  # Dict of Guild Settings acceced by
         self.primary_guild_id: int = 0

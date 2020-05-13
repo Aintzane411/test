@@ -9,4 +9,14 @@ services:
         - "./configs/config.prod.json:/app/config.json"
         - "./configs/guildSettings.prod.json:/app/guildSettings.json"
         - "./data:/app/data"
+      depends_on:
+        - db
       restart: always
+   db:
+      image: postgres:12-alpine
+      volumes:
+        - "db_data:/var/lib/postgresql/data"
+      restart: always
+
+volumes:
+   db_data:

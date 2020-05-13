@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 
 import embeds
-import db
+import pDB
 from utilities.utils import get_channel, get_webhook, backup_interviews_to_db
 from utilities.moreColors import pn_orange
 
@@ -91,7 +91,7 @@ class Interview:
     async def init(self):
         # Only add a new DB entry if the interview object has been instantiated with Member and Channel objects. Otherwise, the object has been instantiated for load from DB Backup.
         if self.member is not None and self.channel is not None:
-            await db.add_new_interview(self.bot.db, self.guild_id, self.member_id, self.member.display_name,
+            await pDB.add_new_interview(self.bot.db, self.guild_id, self.member_id, self.member.display_name,
                                        self.channel_id, self.question_number, self.interview_finished,
                                        self.paused, self.interview_type, read_rules=False)
 
@@ -105,7 +105,7 @@ class Interview:
 
     async def set_interview_type(self, value):
         self._interview_type = value
-        await db.update_interview_type(self.bot.db, self.channel_id, self.member_id, self._interview_type)
+        await pDB.update_interview_type(self.bot.db, self.channel_id, self.member_id, self._interview_type)
 
     # Question Number Setter/Getters
     @property
@@ -114,7 +114,7 @@ class Interview:
 
     async def set_question_number(self, value):
         self._question_number = value
-        await db.update_interview_question_number(self.bot.db, self.channel_id, self.member_id, self._question_number)
+        await pDB.update_interview_question_number(self.bot.db, self.channel_id, self.member_id, self._question_number)
 
     # -- Interview Finished Setter/Getters -- #
     @property
@@ -123,7 +123,7 @@ class Interview:
 
     async def set_interview_finished(self, value):
         self._interview_finished = value
-        await db.update_interview_finished(self.bot.db, self.channel_id, self.member_id, self._interview_finished)
+        await pDB.update_interview_finished(self.bot.db, self.channel_id, self.member_id, self._interview_finished)
 
     # -- Interview Paused Setter/Getters -- #
     @property
@@ -132,7 +132,7 @@ class Interview:
 
     async def set_paused(self, value):
         self._paused = value
-        await db.update_interview_paused(self.bot.db, self.channel_id, self.member_id, self._paused)
+        await pDB.update_interview_paused(self.bot.db, self.channel_id, self.member_id, self._paused)
 
     # -- Rule Confirmations Setter/Getters -- #
     @property
@@ -142,7 +142,7 @@ class Interview:
     async def set_rule_confirmations(self, value):
         self._rule_confirmations = value
         read_rules = True if len(self._rule_confirmations) > 0 else False
-        await db.update_interview_read_rules(self.bot.db, self.channel_id, self.member_id, read_rules)
+        await pDB.update_interview_read_rules(self.bot.db, self.channel_id, self.member_id, read_rules)
 
     async def append_rule_confirmations(self, value):
 
@@ -150,7 +150,7 @@ class Interview:
         if len(self._rule_confirmations) == 1:
             # Since we are only storing True/False in the DB, only update the DB when it goes from False -> True. AKA 0 -> 1
             read_rules = True if len(self._rule_confirmations) > 0 else False
-            await db.update_interview_read_rules(self.bot.db, self.channel_id, self.member_id, read_rules)
+            await pDB.update_interview_read_rules(self.bot.db, self.channel_id, self.member_id, read_rules)
 
 
     def __str__(self):
@@ -446,7 +446,7 @@ class Interview:
         self.LOG.info("Interview: save_to_db()")
         self.LOG.info(f"Saving {self.member.display_name}'s interview")
         read_rules = True if len(self.rule_confirmations) > 0 else False
-        await db.update_interview_all_mutable(self.bot.db, self.channel_id, self.member_id, self.question_number, self.interview_finished, self.paused, self.interview_type, read_rules)
+        await pDB.update_interview_all_mutable(self.bot.db, self.channel_id, self.member_id, self.question_number, self.interview_finished, self.paused, self.interview_type, read_rules)
 
     async def load_json(self, json_data: dict):
         """
@@ -497,10 +497,10 @@ class Interview:
             # If the channel is None then we should also remove the interview from the DB.
             if self.channel is None:
                 # Start with checking channel since it's easier.
-                await db.delete_interview(self.bot.db, self.channel_id, self.member_id)
+                await pDB.delete_interview(self.bot.db, self.channel_id, self.member_id)
             elif self.member is None:
                 # TODO: Take care of the channel that still exists.
-                await db.delete_interview(self.bot.db, self.channel_id, self.member_id)
+                await pDB.delete_interview(self.bot.db, self.channel_id, self.member_id)
 
             return None
 
@@ -569,7 +569,7 @@ class Interviews:
         if archive:
             await self.archive_interview_webhooks(interview, message)
         await interview.channel.delete()
-        await db.delete_interview(self.bot.db, interview.channel_id, interview.member_id)
+        await pDB.delete_interview(self.bot.db, interview.channel_id, interview.member_id)
         await backup_interviews_to_db(self)
 
     async def archive_interview_webhooks(self, interview, message=None):
