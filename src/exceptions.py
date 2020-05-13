@@ -15,3 +15,7 @@ class NotMember(commands.CheckFailure):
 
 class NotStaff(commands.CheckFailure):
     pass
+
+
+class NotTeamOrPotentialMember(commands.CheckFailure):
+    pass

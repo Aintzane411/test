@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 from utilities.moreColors import pn_orange
-from exceptions import NotTeamMember, NotMember
+from exceptions import NotTeamMember, NotMember, NotTeamOrPotentialMember
 
 if TYPE_CHECKING:
     from PNDiscordBot import PNBot
@@ -119,6 +119,26 @@ def is_team_member():
         if role is None:
             raise NotTeamMember()
         return True
+    return commands.check(predicate)
+
+
+def is_team_or_potential_member():
+    async def predicate(ctx: commands.Context):
+
+        if ctx.guild is None:  # Double check that we are not in a DM.
+            raise commands.NoPrivateMessage()
+
+        bot: 'PNBot' = ctx.bot
+        author: discord.Member = ctx.author
+        guild_settings = bot.guild_settings(ctx.guild.id)
+        team_role = discord.utils.get(author.roles, id=guild_settings["team_role_id"]) if guild_settings is not None else None
+        member_role = discord.utils.get(author.roles, id=guild_settings["member_role_id"]) if guild_settings is not None else None
+
+        if member_role is None or team_role is not None:
+            return True
+
+        raise NotTeamOrPotentialMember()
+
     return commands.check(predicate)
 
 

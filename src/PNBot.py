@@ -21,7 +21,7 @@ import asyncpg
 import embeds
 from embeds import std_embed
 
-from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed, is_team_member
+from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed, is_team_member, is_team_or_potential_member
 from exceptions import NotTeamMember
 from Interviews import Interviews, Interview
 from uiElements import BoolPage
@@ -147,7 +147,7 @@ async def test_cmd(ctx: commands.Context):  # , channel_name: str):
 
 
 @commands.is_owner()
-@bot.command(name="reset_inter")
+@bot.command(name="reset_inter", hidden=True)
 async def reset_interviews(ctx):
 
     clear_all_interviews()
@@ -155,7 +155,7 @@ async def reset_interviews(ctx):
 
 
 @commands.is_owner()
-@bot.command(name="invite")
+@bot.command(name="invite", hidden=True)
 async def invite(ctx: commands.Context):
     """
     Manage Server:
@@ -412,7 +412,7 @@ async def remove_question(ctx: commands.Context):
 
 
 @commands.is_owner()
-@bot.command(name="dump")
+@bot.command(name="dump", hidden=True)
 async def dump_interviews(ctx: commands.Context):
     log.info("Dumping interviews")
     await backup_interviews_to_db(open_interviews)
@@ -594,6 +594,7 @@ async def restart_interview(ctx: commands.Context, member: Optional[discord.Memb
     await interview.restart()
 
 
+@is_team_or_potential_member()
 @commands.guild_only()
 @bot.command(name="pause", brief="Pauses the interview.")
 async def pause_interview(ctx: commands.Context):
@@ -608,7 +609,7 @@ async def pause_interview(ctx: commands.Context):
     await interview.pause()
 
 
-# TODO: Interviewies need to be able to use this command.
+@is_team_or_potential_member()
 @commands.guild_only()
 @bot.command(name="resume", brief="Resumes the interview.")
 async def resume_interview(ctx: commands.Context):
