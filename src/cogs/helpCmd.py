@@ -57,10 +57,42 @@ def split_text(text: Union[str, List], max_size: int = 2000, delimiter: str = "\
 
 class EmbedHelp(dpy_cmds.DefaultHelpCommand):
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.separate_aliases = kwargs.get('separate_aliases', False)
+
+
     async def send_embed(self, embed: discord.embeds):
 
         dest: discord.abc.Messageable = self.get_destination()
         await dest.send(embed=embed)
+
+
+    def get_command_signature(self, command):
+        """Retrieves the signature portion of the help page.
+
+        Parameters
+        ------------
+        command: :class:`Command`
+            The command to get the signature of.
+
+        Returns
+        --------
+        :class:`str`
+            The signature for the command.
+        """
+
+        parent = command.full_parent_name
+        if len(command.aliases) > 0 and not self.separate_aliases:
+            aliases = '|'.join(command.aliases)
+            fmt = '[%s|%s]' % (command.name, aliases)
+            if parent:
+                fmt = parent + ' ' + fmt
+            alias = fmt
+        else:
+            alias = command.name if not parent else parent + ' ' + command.name
+
+        return '%s%s %s' % (self.clean_prefix, alias, command.signature)
 
     def get_command_embeded_description(self, command: dpy_cmds.Command) -> List[str]:
         """A utility function to format the embed description block of commands and groups.
@@ -124,6 +156,17 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
             embed.add_field(name="Examples:", value=example_msg, inline=False)
 
         return embed
+
+    def add_command_aliases(self, command: Union[dpy_cmds.Group, dpy_cmds.Command], embed: discord.Embed) -> discord.Embed:
+        """Adds any command aliases the command/group may have as a field """
+
+        if len(command.aliases) > 0 and self.separate_aliases:
+            aliases = ', '.join(command.aliases)
+            alias = f"`{command.name}, {aliases}`"
+            embed.add_field(name="Aliases:", value=alias, inline=False)
+
+        return embed
+
 
     def _get_ending_note(self, group: Optional[dpy_cmds.Group] = None) -> str:
         """Returns help command's ending note. This is mainly useful to override for i18n purposes."""
@@ -190,6 +233,7 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
         embed = discord.Embed(title=f'{command_name}  -  {bot_name} Help', color=help_embed_color)
         embed.description = "\n".join(embed_descrip)
 
+        embed = self.add_command_aliases(command, embed)
         embed = self.add_examples(command, embed)
 
         await self.send_embed(embed)
@@ -206,6 +250,7 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
             field_value = self.get_formated_commands(filtered)  # , heading=self.commands_heading
             embed.add_field(name="Sub-Commands:", value="\n".join(field_value), inline=False)
 
+        embed = self.add_command_aliases(group, embed)
         embed = self.add_examples(group, embed)
 
         note = self._get_ending_note(group)
@@ -216,4 +261,4 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
 
 
 def setup(bot):
-    bot.help_command = EmbedHelp(width=100, indent=0, no_category="Everything Else")
+    bot.help_command = EmbedHelp(width=100, indent=0, no_category="Everything Else", separate_aliases=True)
