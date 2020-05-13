@@ -544,23 +544,23 @@ async def create_tables(pool: asyncpg.pool.Pool):
                               );
                         ''')
 
-        await conn.execute('''
-                               CREATE TABLE if not exists user_profiles(
-                               member_id                BIGINT NOT NULL,
-                               guild_id                 BIGINT NOT NULL,
-                               profile_name             TEXT NOT NULL,
-                               profile_id               SERIAL UNIQUE,
-                               PRIMARY KEY          (member_id, guild_id, profile_name)
-                              );
-                        ''')
-
-        await conn.execute('''
-                               CREATE TABLE if not exists role_profiles(
-                               profile_id               BIGINT NOT NULL REFERENCES user_profiles(profile_id) ON DELETE CASCADE,
-                               role_id                  BIGINT NOT NULL REFERENCES allowed_roles(role_id) ON DELETE CASCADE,
-                               PRIMARY KEY              (profile_id, role_id)
-                              );
-                        ''')
+        # await conn.execute('''
+        #                        CREATE TABLE if not exists user_profiles(
+        #                        member_id                BIGINT NOT NULL,
+        #                        guild_id                 BIGINT NOT NULL,
+        #                        profile_name             TEXT NOT NULL,
+        #                        profile_id               SERIAL UNIQUE,
+        #                        PRIMARY KEY          (member_id, guild_id, profile_name)
+        #                       );
+        #                 ''')
+        #
+        # await conn.execute('''
+        #                        CREATE TABLE if not exists role_profiles(
+        #                        profile_id               BIGINT NOT NULL REFERENCES user_profiles(profile_id) ON DELETE CASCADE,
+        #                        role_id                  BIGINT NOT NULL REFERENCES allowed_roles(role_id) ON DELETE CASCADE,
+        #                        PRIMARY KEY              (profile_id, role_id)
+        #                       );
+        #                 ''')
 
 
 
