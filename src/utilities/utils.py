@@ -3,12 +3,16 @@
 """
 import logging
 import json
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import discord
 from discord.ext import commands
 
 from utilities.moreColors import pn_orange
+from exceptions import NotTeamMember, NotMember
+
+if TYPE_CHECKING:
+    from PNDiscordBot import PNBot
 
 log = logging.getLogger("PNBot")
 
@@ -78,8 +82,17 @@ async def get_webhook(client: commands.Bot, channel: discord.TextChannel) -> dis
     return webhook
 
 
-async def send_embed(ctx: commands.Context, title: Optional[str] = None, desc: Optional[str] = None, color: Optional[discord.Color] = None, content: Optional[str] = None):
+async def send_embed(ctx: commands.Context, title: Optional[str] = None, desc: Optional[str] = None, color: Optional[discord.Color] = None, content: Optional[str] = None) -> discord.Message:
     """Constructs and sends a basic embed."""
+    _embed = None
+    if title is not None or desc is not None:
+        _embed = pn_embed(title, desc, color)
+
+    return await ctx.send(content=content, embed=_embed)
+
+
+def pn_embed(title: Optional[str] = None, desc: Optional[str] = None, color: Optional[discord.Color] = None) -> discord.Embed:
+    """Constructs a basic embed with color defaulting to pn_orange instead of black."""
     if title is None:
         title = discord.embeds.EmptyEmbed
 
@@ -89,9 +102,42 @@ async def send_embed(ctx: commands.Context, title: Optional[str] = None, desc: O
     if color is None:
         color = pn_orange()
 
-    embed = discord.Embed(title=title, description=desc, color=color)
-    await ctx.send(content=content, embed=embed)
+    _embed = discord.Embed(title=title, description=desc, color=color)
+    return _embed
 
+
+def is_team_member():
+    async def predicate(ctx: commands.Context):
+
+        if ctx.guild is None:  # Double check that we are not in a DM.
+            raise commands.NoPrivateMessage()
+
+        bot: 'PNBot' = ctx.bot
+        author: discord.Member = ctx.author
+        guild_settings = bot.guild_settings(ctx.guild.id)
+        role = discord.utils.get(author.roles, id=guild_settings["team_role_id"])
+        if role is None:
+            raise NotTeamMember()
+        return True
+    return commands.check(predicate)
+
+
+def is_server_member():
+    async def predicate(ctx: commands.Context):
+
+        if ctx.guild is None:  # Double check that we are not in a DM.
+            raise commands.NoPrivateMessage()
+
+        bot: 'PNBot' = ctx.bot
+        author: discord.Member = ctx.author
+        guild_settings = bot.guild_settings(ctx.guild.id)
+        member_role = discord.utils.get(author.roles, id=guild_settings["member_role_id"])
+        if member_role is None:
+            team_role = discord.utils.get(author.roles, id=guild_settings["team_role_id"])
+            if team_role is None:
+                raise NotMember()
+        return True
+    return commands.check(predicate)
 
 
 class GuildSettings:

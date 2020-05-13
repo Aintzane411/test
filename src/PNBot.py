@@ -64,20 +64,6 @@ async def on_ready():
     log.info('------')
 
 
-def is_team_member():
-    async def predicate(ctx: commands.Context):
-
-        if ctx.guild is None:  # Double check that we are not in a DM.
-            raise commands.NoPrivateMessage()
-
-        bot: 'PNBot' = ctx.bot
-        author: discord.Member = ctx.author
-        role = discord.utils.get(author.roles, id=guild_settings["team_role_id"])
-        if role is None:
-            raise NotTeamMember()
-        return True
-    return commands.check(predicate)
-
 
 def cleanup_code(content):
     """Automatically removes code blocks from the code."""
@@ -829,7 +815,7 @@ if __name__ == '__main__':
     with open('testConfigs/guildSettings.json') as json_data_file:
         guild_settings = json.load(json_data_file)
         bot.primary_guild_id = 641244873902784522
-        # bot.load_guild_settings(641244873902784522, guild_settings)  # Test Server.
+        bot.load_guild_settings(641244873902784522, guild_settings)  # Test Server.
 
     bot.db = config['db_address']
     asyncio.get_event_loop().run_until_complete(db.create_tables(bot.db))
