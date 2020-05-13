@@ -115,7 +115,7 @@ def is_team_member():
         bot: 'PNBot' = ctx.bot
         author: discord.Member = ctx.author
         guild_settings = bot.guild_settings(ctx.guild.id)
-        role = discord.utils.get(author.roles, id=guild_settings["team_role_id"])
+        role = discord.utils.get(author.roles, id=guild_settings["team_role_id"]) if guild_settings is not None else None
         if role is None:
             raise NotTeamMember()
         return True
@@ -131,9 +131,9 @@ def is_server_member():
         bot: 'PNBot' = ctx.bot
         author: discord.Member = ctx.author
         guild_settings = bot.guild_settings(ctx.guild.id)
-        member_role = discord.utils.get(author.roles, id=guild_settings["member_role_id"])
+        member_role = discord.utils.get(author.roles, id=guild_settings["member_role_id"]) if guild_settings is not None else None
         if member_role is None:
-            team_role = discord.utils.get(author.roles, id=guild_settings["team_role_id"])
+            team_role = discord.utils.get(author.roles, id=guild_settings["team_role_id"]) if guild_settings is not None else None
             if team_role is None:
                 raise NotMember()
         return True
