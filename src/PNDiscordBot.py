@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 extensions = (
     # -- Command Extensions -- #
     'cogs.helpCmd',
+    'cogs.roles',
 )
 
 

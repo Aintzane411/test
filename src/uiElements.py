@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING, Optional, Dict, List, Union, Tuple, NamedTuple
 import discord
 from discord.ext import commands
 
+if TYPE_CHECKING:
+    from pDB import RoleCategory, AllowedRole
+
 
 class DiscordPermissionsError(Exception):
     pass
@@ -72,17 +75,19 @@ class Page:
     """
     LOG = logging.getLogger("PNBot.Page")
 
-    def __init__(self, page_type: str, name: Optional[str] = None, body: Optional[str] = None,
-                 callback: Callable = do_nothing, additional: str = None, embed: Optional[discord.Embed] = None, image = None, previous_msg: Optional[Union[discord.Message, PageResponse]] = None, timeout: int = 120.0):
+    def __init__(self, name: Optional[str] = None, body: Optional[str] = None,
+                 callback: Callable = do_nothing, additional: str = None, embed: Optional[discord.Embed] = None, image = None,
+                 previous_msg: Optional[Union[discord.Message, PageResponse]] = None, timeout: int = 120.0):
 
         self.name = name
         self.body = body
         self.additional = additional
+
         self.embed = embed
+
         self.image = image
         self.timeout = timeout
 
-        self.page_type = page_type.lower()
         self.callback = callback
         self.prev = previous_msg.ui_message if isinstance(previous_msg, PageResponse) else previous_msg
 
@@ -146,7 +151,7 @@ class BoolPage(Page):
         self.match = None
         self.canceled = False
 
-        super().__init__(page_type="n/a", name=name, body=body, callback=callback, additional=additional, embed=embed, previous_msg=previous_msg, timeout=timeout)
+        super().__init__(name=name, body=body, callback=callback, additional=additional, embed=embed, previous_msg=previous_msg, timeout=timeout)
 
 
     async def run(self, ctx: commands.Context, new_embed: Optional[discord.Embed] = None):
@@ -200,12 +205,11 @@ class BoolPage(Page):
             return None
 
 
-
 class StringReactPage(Page):
     # cancel_emoji = '🛑'
-    cancel_emoji = "❌"
 
-    def __init__(self, buttons: List[Tuple[Union[discord.PartialEmoji, str], Any]] = None, allowable_responses: Optional[List[str]] = None, cancel_btn=True, edit_in_place=False, remove_msgs=True, **kwrgs):
+    def __init__(self, buttons: List[Tuple[Union[discord.PartialEmoji, str], Any]] = None, allowable_responses: Optional[List[str]] = None, allow_any_response: bool = False,
+                 cancel_btn=True, edit_in_place=False, remove_msgs=True, cancel_emoji: Optional[str] = None, cancel_btn_loc: Optional[int] = None, **kwrgs):
         """
         Callback signature: ctx: commands.Context, page: reactMenu.Page
 
@@ -216,18 +220,26 @@ class StringReactPage(Page):
         self.ctx = None
         self.match = None
         self.cancel_btn = cancel_btn
+        # self.allow_any_response = allow_any_response
         self.allowable_responses = allowable_responses or []
+        self.clean_allowable_responses = [allowed_rsp.lower().strip() for allowed_rsp in self.allowable_responses]
+
         self.edit_in_place = edit_in_place
         self.canceled = False
         self.buttons = buttons or []
         self.sent_msg = []
         self._reaction_match = None
         self.remove_msgs = remove_msgs
+        self.match_type = None
+        self.cancel_emoji = cancel_emoji or "❌"
 
-        if self.cancel_btn:
+        if self.cancel_btn and cancel_btn_loc is None:
             self.buttons.append((self.cancel_emoji, None))
 
-        super().__init__(page_type="n/a", **kwrgs)
+        elif self.cancel_btn and cancel_btn_loc is not None:
+            self.buttons.insert(cancel_btn_loc, (self.cancel_emoji, None))
+
+        super().__init__(**kwrgs)
 
     async def run(self, ctx: commands.Context, new_embed: Optional[discord.Embed] = None, send_new_msg=True):
         """
@@ -246,11 +258,15 @@ class StringReactPage(Page):
             self.page_message = await self.send(self.construct_std_page_msg(), embed=self.embed, image=self.image)
 
             if not self.running or not self.edit_in_place:
-                for (reaction, _) in self.buttons:
-                    try:
-                        await self.page_message.add_reaction(reaction)
-                    except discord.Forbidden:
-                        raise CannotAddReactions()
+                async def add_reactions():
+                    for (reaction, _) in self.buttons:
+                        try:
+                            await self.page_message.add_reaction(reaction)
+                        except discord.Forbidden:
+                            raise CannotAddReactions()
+
+                loop: asyncio.AbstractEventLoop = ctx.bot.loop
+                task = loop.create_task(add_reactions())
 
         self.running = True
 
@@ -285,9 +301,9 @@ class StringReactPage(Page):
                 # await ctx.send("Done!")
                 return None
 
-            if self.match is not None and len(self.allowable_responses) > 0:
+            if self.match is not None and len(self.allowable_responses) > 0 and self.match_type != "react":
                 # self.LOG.info(f"Got: {self.match}")
-                if self.match not in self.allowable_responses:
+                if self.match.lower().strip() not in self.clean_allowable_responses:
                     content = self.match
                     if content.startswith(ctx.bot.command_prefix):
                         self.sent_msg.append(
@@ -344,6 +360,8 @@ class StringReactPage(Page):
 
         if self.cancel_emoji == str(payload.emoji):
             self.canceled = True
+            self._reaction_match = str(payload.emoji)
+            self.match_type = "react"
             return True
 
         to_check = str(payload.emoji)
@@ -351,6 +369,7 @@ class StringReactPage(Page):
             if to_check == emoji:
                 self.match = func
                 self._reaction_match = emoji
+                self.match_type = "react"
                 return True
 
         return False
@@ -364,11 +383,12 @@ class StringReactPage(Page):
         if _msg.channel.id != self.page_message.channel.id:
             return False
 
-        if _msg.content.lower().strip() not in self.allowable_responses:
-            return False
+        # if _msg.content.lower().strip() not in self.clean_allowable_responses:  # _msg.content.lower().strip() not in self.allowable_responses
+        #     return False
 
         self.LOG.info(f"returning: true. content: {_msg.content}")
-        self.match = _msg.content.lower().strip()
+        self.match = _msg.content
+        self.match_type = "string"
         return True
 
 
@@ -448,6 +468,9 @@ class StringReactPage(Page):
                 await self.remove_bot_react(react)
             if self.cancel_btn:
                 await self.remove_bot_react(self.cancel_emoji)
+
+
+
 
 
 

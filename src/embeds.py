@@ -2,12 +2,16 @@
 
 """
 from datetime import datetime
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import discord
 from discord.embeds import EmptyEmbed
 
+from utilities.utils import pn_embed
 from utilities.moreColors import pn_orange
+
+if TYPE_CHECKING:
+    from utilities.roleParser import ParsedRoles
 
 def exception_w_message(message: discord.Message) -> discord.Embed:
     embed = discord.Embed()
@@ -80,3 +84,34 @@ def std_embed(title: Optional[str] = EmptyEmbed, desc: Optional[str] = EmptyEmbe
                           color=color)
     return embed
 
+
+def add_and_removed_roles_embed(roles: 'ParsedRoles', disallowed_field_name=None, remove_roles_msg: bool = False) -> discord.Embed:
+
+    add_remove_txt = "removed" if remove_roles_msg else "added"
+
+    if disallowed_field_name is None:
+        disallowed_field_name = f"The following roles are not allowed to be {add_remove_txt} by PNBot:"
+
+    status_embed = pn_embed(title=f"{len(roles.good_roles)} out of {len(roles.good_roles) + len(roles.bad_roles) + len(roles.disallowed_roles)} roles {add_remove_txt}")
+
+    if len(roles.good_roles) > 0:
+        good_roles_msg = ", ".join([f"<@&{role.id}>" for role in roles.good_roles])
+        status_embed.add_field(name=f"Successfully {add_remove_txt}:", value=good_roles_msg, inline=False)
+
+    if len(roles.disallowed_roles) > 0:
+        disallowed_roles_msg = ", ".join([f"<@&{role.id}>" for role in roles.disallowed_roles])
+
+        status_embed.add_field(
+            name=disallowed_field_name,
+            value=disallowed_roles_msg, inline=False)
+
+    if len(roles.bad_roles) > 0:
+        bad_roles_msg = ", ".join([f"{role}" for role in roles.bad_roles])
+        suggestion_strs = [f"<@&{role.best_match.id}>" for role in roles.bad_roles if
+                           role.best_match is not None]
+        suggestion_msg = f"\n\nDid you mean? \n{', '.join(set(suggestion_strs))}" if len(suggestion_strs) > 0 else ""
+
+        status_embed.add_field(name="Could not find the following (check spelling and capitalization):",
+                               value=f"{bad_roles_msg}{suggestion_msg}\n\N{ZERO WIDTH SPACE}", inline=False)
+
+    return status_embed
