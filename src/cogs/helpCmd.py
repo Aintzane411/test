@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 help_embed_color = 0xF6C57F
 bot_name = "PNBot"
-bot_description = "PNBot is a bot custom designed for Plural Nest to help assist with interviews and other tasks."
+bot_description = "PNBot is a bot custom designed for Plural Nest to help assist with interviews, role assignment, and other tasks."
 bot_github_link = "https://github.com/amadea-system/PNBot"
 
 
@@ -153,7 +153,8 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
 
             example_msg.append("\n")
             example_msg = "\n".join(example_msg)
-            embed.add_field(name="Examples:", value=example_msg, inline=False)
+            field_name = "Examples:" if len(command.examples) > 1 else "Example:"
+            embed.add_field(name=field_name, value=example_msg, inline=False)
 
         return embed
 
