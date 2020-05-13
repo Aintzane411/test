@@ -688,7 +688,8 @@ class Roles(commands.Cog):
     @eCommands.command(name="add_cat", brief="Add a new role category",
                        description="Lets you add a new category for holding roles. "
                                    "Quotes are not needed for this command.",
-                       examples=["Awesome Colors!"])
+                       examples=["Awesome Colors!"],
+                       category="Role Management")
     async def add_category(self, ctx: commands.Context, *, cat_name: Optional[str] = None):
         if cat_name is None:
             await ctx.send_help(self.add_category)
@@ -724,7 +725,8 @@ class Roles(commands.Cog):
     @eCommands.command(name="delete_cat", brief="Deletes a role category",
                        description="Lets you delete an existing category for holding roles. "
                                    "Quotes are not needed for this command.",
-                       examples=["Awesome Colors!"])
+                       examples=["Awesome Colors!"],
+                       category="Role Management")
     async def delete_category(self, ctx: commands.Context, *, cat_name: Optional[str] = None):
         if cat_name is None:
             await ctx.send_help(self.add_category)
@@ -758,7 +760,8 @@ class Roles(commands.Cog):
     @eCommands.command(name="swap_cats", brief="Swaps the position of two categories (Use quotes).",
                        description="Lets you reorder the categories by swapping the position of any two categories. "
                                    "Quotes are required for any category who's name has spaces in it.",
-                       examples=['Pronouns "Awesome Colors!"'])
+                       examples=['Pronouns "Awesome Colors!"'],
+                       category="Role Management")
     async def swap_category(self, ctx: commands.Context, first_category: Optional[str] = None, second_category: Optional[str] = None):
         if first_category is None or second_category is None:
             await ctx.send_help(self.swap_category)
@@ -788,7 +791,8 @@ class Roles(commands.Cog):
     @eCommands.command(name="set_cat_desc", brief="Change the description of a role category",
                        description="This command allows you to add/change/remove the description of a role category.\n"
                                    "This command is interactive and no arguments are required",
-                       examples=[""])
+                       examples=[""],
+                       category="Role Management")
     async def redescribe_category(self, ctx: commands.Context):
 
         cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
@@ -803,7 +807,8 @@ class Roles(commands.Cog):
                        description="A non-interactive version of the `allow_role` command.\n"
                                    "Allows you to add a new role for users to set.\n"
                                    "Quotes are required for the role if it has spaces in it. Quotes are not required for the category name.",
-                       examples=['"Radical Red" Awesome Colors!', 'Pink Awesome Colors!'])
+                       examples=['"Radical Red" Awesome Colors!', 'Pink Awesome Colors!'],
+                       category="Role Management")
     async def allow_role_man(self, ctx: commands.Context, role: Optional[str] = None, *, cat_name: Optional[str] = None):
         if role is None or cat_name is None:
             await ctx.send_help(self.allow_role_man)
@@ -827,7 +832,8 @@ class Roles(commands.Cog):
     @eCommands.command(name="allow_role", aliases=["allow_roles"], brief="Adds a new user settable role.",
                        description="Allows you to add a new role for users to set.\n"
                                    "This command is interactive and no arguments are required",
-                       examples=[""])
+                       examples=[""],
+                       category="Role Management")
     async def allow_role(self, ctx: commands.Context):
 
         cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
@@ -835,11 +841,26 @@ class Roles(commands.Cog):
         await ui.run(ctx)
 
 
+    @commands.has_permissions(manage_messages=True)
+    @commands.guild_only()
+    @eCommands.command(name="disallow_role", aliases=["disallow_roles"], brief="Disallows a role from being user settable.",
+                       description="Allows you to add a new role for users to set.\n"
+                                   "This command is interactive and no arguments are required",
+                       examples=[""],
+                       category="Role Management")
+    async def disallow_role(self, ctx: commands.Context):
+
+        cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
+        ui = AdminRemoveRoles()
+        await ui.run(ctx)
+
+
     @is_team_member()
     @commands.guild_only()
     @eCommands.command(name="list_cats", brief="Lists all the defined categories.",
                        description="Shows all the categories setup on this server.",
-                       examples=[""])
+                       examples=[""],
+                       category="Role Management")
     async def show_cats(self, ctx: commands.Context):
         cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
         cats = cats.cats

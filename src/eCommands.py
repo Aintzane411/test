@@ -12,6 +12,7 @@ class ECommand(dpy_cmds.Command):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.examples = kwargs.get('examples', [])
+        self.category = kwargs.get('category', None)
 
 
 class EGroup(dpy_cmds.Group):
@@ -19,6 +20,7 @@ class EGroup(dpy_cmds.Group):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.examples = kwargs.get('examples', [])
+        self.category = kwargs.get('category', None)
 
 
     def command(self, *args, **kwargs):

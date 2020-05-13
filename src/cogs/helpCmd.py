@@ -203,6 +203,9 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
         no_category = '\u200b{0.no_category}:'.format(self)
 
         def get_category(command, *, no_category=no_category):
+            if hasattr(command, 'category') and command.category is not None:
+                return f"{command.category}:"
+
             cog = command.cog
             return cog.qualified_name + ':' if cog is not None else no_category
 
