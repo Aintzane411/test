@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+MAX_NUMBER_OF_CATS = 9
 
 number_emotes = [
     "\N{DIGIT ZERO}\N{VARIATION SELECTOR-16}\N{COMBINING ENCLOSING KEYCAP}",
@@ -117,7 +118,7 @@ class AdminAddAllowedRoles:
 
         unparsed_roles = response.content()
 
-        parsed_roles = await parse_csv_roles(self.ctx, unparsed_roles, allow_all=True)
+        parsed_roles = await parse_csv_roles(self.ctx, unparsed_roles, parse_all=True)
         if parsed_roles is None:
             await self.ctx.send(embed=pn_embed(title="ERROR!!! Could not parse roles!"))
             return
@@ -147,7 +148,7 @@ class AdminAddAllowedRoles:
     # async def construct_category_selection_embed
 
 
-class AdminRemoveRoles:
+class AdminRemoveAllowedRoles:
     navigation_buttons = [
         ("\N{Leftwards Black Arrow}", "left_button"),
         ("\N{Black Rightwards Arrow}", "right_button"),
@@ -179,7 +180,7 @@ class AdminRemoveRoles:
 
         unparsed_roles = response.content()
 
-        parsed_roles = await parse_csv_roles(self.ctx, unparsed_roles)
+        parsed_roles = await parse_csv_roles(self.ctx, unparsed_roles, parse_all=True, allow_privileged_roles=True)
         if parsed_roles is None:
             await self.ctx.send(embed=pn_embed(title="ERROR!!! Could not parse roles!"))
             return
@@ -216,7 +217,7 @@ class AddRemoveRolesToUser:
         ("\N{Bar Chart}", "category_list")
     ]
 
-    max_per_page = 9
+    max_per_page = 9  # TODO: Make this configurable per guild.
 
     def __init__(self, cats: pDB.RoleCategories):
         self.role_cats = cats.cats
@@ -255,7 +256,7 @@ class AddRemoveRolesToUser:
             return
 
         embed = await self.prepare_embed()
-        self.ui = StringReactPage(embed=self.embed, buttons=self.buttons, remove_msgs=False, edit_in_place=True, cancel_emoji='🛑', cancel_btn_loc=len(self.navigation_buttons))
+        self.ui = StringReactPage(embed=self.embed, buttons=self.buttons, remove_msgs=False, edit_in_place=True, cancel_emoji='🛑') #, cancel_btn_loc=len(self.navigation_buttons))
 
         await self.update_current_roles_len()  # Make sure that self.current_roles_len is initialized
 
@@ -313,12 +314,16 @@ class AddRemoveRolesToUser:
 
     async def decrement_page(self):
         """Decrements the page count and the refreshes self.embed"""
-        if self.page_index > 0 and self.sub_page_index == 0:
-            self.page_index -= 1
-            self.sub_page_index = await self.max_sub_page_index()
+        if not self.showing_categories:  # if we are on the cat listing, just return back to the page we are on.
+            if self.page_index > 0 and self.sub_page_index == 0:
+                self.page_index -= 1
+                self.sub_page_index = await self.max_sub_page_index()
 
-        elif self.sub_page_index > 0:
-            self.sub_page_index -= 1
+            elif self.sub_page_index > 0:
+                self.sub_page_index -= 1
+
+            else:
+                self.page_index = self.max_page_index  # Wrap around
 
         await self.update_current_roles_len()
 
@@ -329,12 +334,16 @@ class AddRemoveRolesToUser:
 
     async def increment_page(self):
         """Increments the page count and the refreshes self.embed"""
-        if self.page_index < self.max_page_index and self.sub_page_index == await self.max_sub_page_index():
-            self.page_index += 1
-            self.sub_page_index = 0
+        if not self.showing_categories:  # if we are on the cat listing, just return back to the page we are on.
+            if self.page_index < self.max_page_index and self.sub_page_index == await self.max_sub_page_index():
+                self.page_index += 1
+                self.sub_page_index = 0
 
-        elif self.sub_page_index < await self.max_sub_page_index():
-            self.sub_page_index += 1
+            elif self.sub_page_index < await self.max_sub_page_index():
+                self.sub_page_index += 1
+
+            else:
+                self.page_index = 0  # Wrap around
 
         await self.update_current_roles_len()
 
@@ -363,12 +372,14 @@ class AddRemoveRolesToUser:
         self.embed.title = f"Jump to a Category"
         self.embed.description = f"*Click* on the associated react to jump to a category.\n" \
                                  f"*Click* on 🛑 to stop changing your roles.\n" \
-                                 f"*Click* on \N{Bar Chart} to return to the category listing.\n\n"
+                                 f"*Click* on \N{Bar Chart} to return to the category listing.\n" \
+                                 f"*Click* on \N{Leftwards Black Arrow} / \N{Black Rightwards Arrow} to navigate through the pages.\n\n"
 
         cat_txt = []
         for i, cat in enumerate(self.role_cats):
             if i < self.max_per_page:  # TODO: Paginate Categories.
-                cat_description = f"\n{cat.description}" if cat.description is not None else f""
+
+                cat_description = f"\n{cat.bq_description}" if cat.description is not None else ""
                 cat_txt.append(f"{number_buttons[i+1][0]} __**{cat.cat_name}**__{cat_description}")
 
         cat_txt = "\n".join(cat_txt) if len(cat_txt) > 0 else "*No Categories*"
@@ -386,11 +397,14 @@ class AddRemoveRolesToUser:
         self.embed.title = f"Select Roles to Add or Remove"
         max_sub_page_index = await self.max_sub_page_index()
 
-        cat_page_num = f"  ({self.sub_page_index+1} / {max_sub_page_index + 1})" if max_sub_page_index > 0 else ""
-        cat_desc = self.current_category.description if self.current_category.description is not None else ""
+        cat_page_num = f"*Showing Category {self.page_index+1} of {self.max_page_index+1}*"
+        cat_subpage_num = f"  ({self.sub_page_index+1} / {max_sub_page_index + 1})" if max_sub_page_index > 0 else ""
+        cat_desc = self.current_category.bq_description if self.current_category.description is not None else ""
+
         self.embed.description = f"*Click* on the associated react to add/remove roles.\n\n" \
-                                 f"__**{self.current_category.cat_name}{cat_page_num}**__\n"\
-                                 f"{cat_desc}"
+                                 f"{cat_page_num}\n"\
+                                 f"__**{self.current_category.cat_name}{cat_subpage_num}**__\n"\
+                                 f"{cat_desc}\n"
 
         roles = await self.current_roles()  # self.role_cats[self.page_index].get_roles()
 
@@ -695,6 +709,14 @@ class Roles(commands.Cog):
             await ctx.send_help(self.add_category)
             return
 
+        existing_cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
+
+        if len(existing_cats.cats) >= MAX_NUMBER_OF_CATS:
+            await send_embed(ctx, title="Can not add new category.",
+                             desc="You have reached already the maximum number of categories and con not add another.\n"
+                                  "Consider renaming or deleting an existing category")
+            return
+
         embed = pn_embed(desc=f"Please enter a description for the new category {cat_name}\n"
                               f"Enter `none` for no description.")
 
@@ -714,7 +736,6 @@ class Roles(commands.Cog):
             cat_desc = response.content()
             cat_desc_msg = f"the description:\n\n{cat_desc}"
 
-        existing_cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
         await existing_cats.add_new_cat(cat_name, cat_desc)
         await send_embed(ctx, desc=f"**{cat_name}** has been added with {cat_desc_msg}")
         await ui.finish()
@@ -727,16 +748,16 @@ class Roles(commands.Cog):
                                    "Quotes are not needed for this command.",
                        examples=["Awesome Colors!"],
                        category="Role Management")
-    async def delete_category(self, ctx: commands.Context, *, cat_name: Optional[str] = None):
-        if cat_name is None:
-            await ctx.send_help(self.add_category)
+    async def delete_category(self, ctx: commands.Context, *, category_name: Optional[str] = None):
+        if category_name is None:
+            await ctx.send_help(self.delete_category)
             return
 
         existing_cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
 
-        category = existing_cats.get_cat_by_name(cat_name)
+        category = existing_cats.get_cat_by_name(category_name)
         if category is None:
-            raise ValueError(f"Could not find a category named {cat_name}")
+            raise ValueError(f"Could not find a category named {category_name}")
         roles = await category.get_roles()
         embed = pn_embed(title="Are You Sure?",
                          desc=f"**{category.cat_name}** contains **{len(roles)}** roles that will have to be readded to PNBot to be user settable if this category is deleted!\n"
@@ -750,9 +771,9 @@ class Roles(commands.Cog):
             await ctx.send(embed=embed)
             return
 
-        cat_name = category.cat_name
+        category_name = category.cat_name
         await category.delete()
-        await send_embed(ctx, desc=f"**{cat_name}** has been deleted!")
+        await send_embed(ctx, desc=f"**{category_name}** has been deleted!")
 
 
     @commands.has_permissions(manage_messages=True)
@@ -850,8 +871,8 @@ class Roles(commands.Cog):
                        category="Role Management")
     async def disallow_role(self, ctx: commands.Context):
 
-        cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
-        ui = AdminRemoveRoles()
+        # cats = await pDB.get_role_cats(self.pool, ctx.guild.id)
+        ui = AdminRemoveAllowedRoles()
         await ui.run(ctx)
 
 
@@ -871,12 +892,13 @@ class Roles(commands.Cog):
 
             for cat in cats:
                 cat_roles = await cat.get_roles()
-                split_cat_desc = cat.description.splitlines() if cat.description is not None else []
+                # split_cat_desc = cat.description.splitlines() if cat.description is not None else []
 
-                cat_desc = ""
-                for line in split_cat_desc:
-                    cat_desc += f"> {line}\n"
+                # cat_desc = ""
+                # for line in split_cat_desc:
+                #     cat_desc += f"> {line}\n"
                 # cat_desc += "\n"
+                cat_desc = cat.bq_description if cat.description is not None else "\n"
 
                 # cat_desc = f"> {cat.description}\n\n" if cat.description is not None else "\n"
                 role_number = f"({len(cat_roles)} Roles)" if len(cat_roles) != 1 else f"({len(cat_roles)} Role)"

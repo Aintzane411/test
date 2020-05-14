@@ -263,6 +263,19 @@ class RoleCategory:
     roles: Optional[List[AllowedRole]] = None
 
 
+    @property
+    def bq_description(self) -> Optional[str]:
+        """Reformats the description to be discord formatted as a multi-line block quote"""
+        if self.description is None:
+            return None
+
+        split_cat_desc = self.description.splitlines()
+
+        cat_desc = ""
+        for line in split_cat_desc:
+            cat_desc += f"> {line}\n"
+        return cat_desc
+
     async def get_roles(self) -> List[AllowedRole]:
         if self.roles is None:
             self.roles = await get_roles_in_cat(self.pool, self.cat_id)

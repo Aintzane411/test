@@ -124,11 +124,11 @@ async def is_allowed(categories: List['RoleCategory'], other_role: discord.Role)
 csv_regex_pattern = re.compile("(.+?)(?:,|$)")
 
 
-async def parse_csv_roles(ctx: commands.Context, role_text: str, allowed_roles: Optional[List['RoleCategory']] = None, allow_all: bool = False) -> Optional[ParsedRoles]:
+async def parse_csv_roles(ctx: commands.Context, role_text: str, allowed_roles: Optional[List['RoleCategory']] = None, parse_all: bool = False, allow_privileged_roles: bool = False) -> Optional[ParsedRoles]:
     """ Parse a message containing CSV Roles.
 
         If allowed_roles is passed, we will attempt to FuzzyMatch any non-matched results with a role on the allowed roles list
-        If allow_all is True, we will attempt to FuzzyMatch any non-matched results against every role in the guild (Good for Admin purposes.)
+        If parse_all is True, we will attempt to FuzzyMatch any non-matched results against every role in the guild (Good for Admin purposes.)
         Returns Named Tuple with Good roles and bad roles.
         Returns None if it can't parse.
 
@@ -167,7 +167,7 @@ async def parse_csv_roles(ctx: commands.Context, role_text: str, allowed_roles: 
                 # Add the role to the good list IF it's on the allowed list, or if there is no allowed list.
 
                 is_mod_role = (potential_role.permissions.manage_messages or potential_role.permissions.administrator)
-                if not is_mod_role:
+                if not is_mod_role or allow_privileged_roles:
                     good_roles.append(potential_role)
                 else:
                     disallowed_roles.append(potential_role)  # Don't allow the bot to add roles with mod permissions!
@@ -185,7 +185,7 @@ async def parse_csv_roles(ctx: commands.Context, role_text: str, allowed_roles: 
             score = match[1] if match else None
 
             # Check to see if the type is role and if we will allow all roles / the role is on the allowed list.
-            if isinstance(best_match, discord.Role) and (allow_all or (allowed_roles is not None and await is_allowed(allowed_roles, best_match))):
+            if isinstance(best_match, discord.Role) and (parse_all or (allowed_roles is not None and await is_allowed(allowed_roles, best_match))):
                 bad_role = BadRole(role=raw_role, best_match=best_match, score=score)  # Add the suggestion since it IS an allowed role.
             else:
                 bad_role = BadRole(role=raw_role, best_match=None, score=None)  # Don't recommend roles that Users can't set.
