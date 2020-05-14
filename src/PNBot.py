@@ -10,8 +10,6 @@ from typing import Optional, Union, List
 import asyncio
 # from datetime import datetime, timedelta
 import textwrap
-import io
-from contextlib import redirect_stdout
 
 import discord
 from discord.ext import commands
@@ -67,64 +65,7 @@ async def on_ready():
 
 
 
-def cleanup_code(content):
-    """Automatically removes code blocks from the code."""
-    # remove ```py\n```
-    if content.startswith('```') and content.endswith('```'):
-        return '\n'.join(content.split('\n')[1:-1])
 
-    # remove `foo`
-    return content.strip('` \n')
-
-
-@commands.is_owner()
-@bot.command(pass_context=True, hidden=True, name='eval')
-async def _eval(ctx, *, body: str):
-    """Evaluates a code"""
-
-    env = {
-        #'bot': self.bot,
-        'client': bot,
-        'ctx': ctx,
-        'channel': ctx.channel,
-        'author': ctx.author,
-        'guild': ctx.guild,
-        'message': ctx.message#,
-        # '_': self._last_result
-    }
-
-    env.update(globals())
-
-    body = cleanup_code(body)
-    stdout = io.StringIO()
-
-    to_compile = f'async def func():\n{textwrap.indent(body, "  ")}'
-
-    try:
-        exec(to_compile, env)
-    except Exception as e:
-        return await ctx.send(f'```py\n{e.__class__.__name__}: {e}\n```')
-
-    func = env['func']
-    try:
-        with redirect_stdout(stdout):
-            ret = await func()
-    except Exception as e:
-        value = stdout.getvalue()
-        await ctx.send(f'```py\n{value}{traceback.format_exc()}\n```')
-    else:
-        value = stdout.getvalue()
-        try:
-            await ctx.message.add_reaction('\u2705')
-        except:
-            pass
-
-        if ret is None:
-            if value:
-                await ctx.send(f'```py\n{value}\n```')
-        else:
-            # self._last_result = ret
-            await ctx.send(f'```py\n{value}{ret}\n```')
 
 
 @commands.is_owner()
@@ -820,7 +761,6 @@ if __name__ == '__main__':
         bot.primary_guild_id = 641244873902784522
         bot.load_guild_settings(641244873902784522, guild_settings)  # Test Server.
 
-    # bot.db = config['db_address']
     db_pool: asyncpg.pool.Pool = asyncio.get_event_loop().run_until_complete(pDB.create_db_pool(config['db_address']))
     bot.db = db_pool
 
