@@ -21,6 +21,7 @@ extensions = (
     # -- Command Extensions -- #
     'cogs.helpCmd',
     'cogs.roles',
+    'cogs.dev',
 )
 
 
