@@ -19,8 +19,8 @@ import asyncpg
 import embeds
 from embeds import std_embed
 
-from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed, is_team_member, is_team_or_potential_member
-from exceptions import NotTeamMember
+from utilities.utils import get_channel, SnowFlake, backup_interviews_to_db, get_webhook, save_settings, clear_all_interviews, send_embed, is_team_member, is_team_or_potential_member, pn_embed
+from exceptions import NotTeamMember, NotMember, NotTeamOrPotentialMember
 from Interviews import Interviews, Interview
 from uiElements import BoolPage
 
@@ -567,24 +567,47 @@ async def resume_interview(ctx: commands.Context):
 # ---- Command Error Handling ----- #
 @bot.event
 async def on_command_error(ctx, error):
-    if type(error) == discord.ext.commands.NoPrivateMessage:
-        await ctx.send("⚠ This command can not be used in DMs!!!")
+
+    # https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612
+
+    # This prevents any commands with local handlers being handled here in on_command_error.
+    if hasattr(ctx.command, 'on_error'):
         return
-    elif type(error) == discord.ext.commands.CommandNotFound:
-        await ctx.send("⚠ Invalid Command!!!")
-        return
-    elif type(error) == discord.ext.commands.MissingPermissions:
-        await ctx.send("⚠ You need the **Manage Messages** permission to use this command".format(error.missing_perms))
-        return
-    elif type(error) == NotTeamMember:
-        await ctx.send("⚠ You must be a Team Member to use this command!")
-        return
-    elif type(error) == discord.ext.commands.MissingRequiredArgument:
-        await ctx.send("⚠ {}".format(error))
-    elif type(error) == discord.ext.commands.BadArgument:
-        await ctx.send("⚠ {}".format(error))
+
+    # Allows us to check for original exceptions raised and sent to CommandInvokeError.
+    # If nothing is found. We keep the exception passed to on_command_error.
+    error = getattr(error, 'original', error)
+
+    if isinstance(error, discord.ext.commands.NoPrivateMessage):
+        await send_embed(ctx, title="Error!", desc="⚠ This command can not be used in DMs!!!")
+
+    elif isinstance(error, discord.ext.commands.CommandNotFound):
+        await send_embed(ctx, title="Error!", desc="⚠ Invalid Command!!!")
+
+    elif isinstance(error, discord.ext.commands.MissingPermissions):
+        await send_embed(ctx, title="Error!", desc="⚠ You need the **Manage Messages** permission to use this command".format(error.missing_perms))
+
+    elif isinstance(error, NotTeamMember):
+        await send_embed(ctx, title="Error!", desc="⚠ You must be a Team Member to use this command!")
+
+    elif isinstance(error, NotMember):
+        await send_embed(ctx, title="Error!", desc="⚠ You must be a Member of Plural Nest to use this command!")
+
+    elif isinstance(error, NotTeamOrPotentialMember):
+        await send_embed(ctx, title="Error!", desc="⚠ You must be a Team Member or a interviewee to use this command!")
+
+    elif isinstance(error, discord.ext.commands.MissingRequiredArgument):
+        await send_embed(ctx, title="Error!", desc="⚠ {}".format(error))
+
+    elif isinstance(error, discord.ext.commands.BadArgument):
+        await send_embed(ctx, title="Error!", desc="⚠ {}".format(error))
+
     else:
-        await ctx.send("⚠ {}".format(error))
+        try:
+            await ctx.send("⚠ {}".format(error))
+        except:
+            pass
+
         raise error
 
 
