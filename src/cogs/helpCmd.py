@@ -179,6 +179,21 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
         return "Type {0}{1} command for more info on a command.\n" \
                "You can also type {0}{1} category for more info on a category.".format(self.clean_prefix, command_name)
 
+
+    async def is_user_allowed_help(self, cmd: Union[dpy_cmds.Group, dpy_cmds.Command]) -> bool:
+        """
+        Checks if the user is allowed to see help for the command.
+         This is based on verify_checks and if the user is allowed to run the command.
+        """
+        if not self.verify_checks:
+            return True   # if we do not need to verify the checks then we can just return True
+
+        try:
+            return await cmd.can_run(self.context)
+        except dpy_cmds.CommandError:
+            return False
+
+
     async def send_bot_help(self, mapping):
         ctx: dpy_cmds.Context = self.context
         bot: dpy_cmds.Bot = ctx.bot
@@ -231,14 +246,19 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
 
 
     async def send_command_help(self, command: dpy_cmds.Command):
-        embed_descrip = self.get_command_embeded_description(command)
+
         command_name = command.qualified_name
-
         embed = discord.Embed(title=f'{command_name}  -  {bot_name} Help', color=help_embed_color)
-        embed.description = "\n".join(embed_descrip)
 
-        embed = self.add_command_aliases(command, embed)
-        embed = self.add_examples(command, embed)
+        if not await self.is_user_allowed_help(command):
+            embed.description = f"**You are not allowed to use this command.**\n"
+        else:
+            embed_descrip = self.get_command_embeded_description(command)
+
+            embed.description = "\n".join(embed_descrip)
+
+            embed = self.add_command_aliases(command, embed)
+            embed = self.add_examples(command, embed)
 
         await self.send_embed(embed)
 
@@ -246,20 +266,23 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
     async def send_group_help(self, group: dpy_cmds.Group):
         command_name = group.qualified_name
         embed = discord.Embed(title=f'{command_name}  -  {bot_name} Help', color=help_embed_color)
-        embed_desc = self.get_command_embeded_description(group)
-        embed.description = "\n".join(embed_desc)
 
-        filtered = await self.filter_commands(group.commands, sort=self.sort_commands)
-        if len(filtered) > 0:
-            field_value = self.get_formated_commands(filtered)  # , heading=self.commands_heading
-            embed.add_field(name="Sub-Commands:", value="\n".join(field_value), inline=False)
+        if not await self.is_user_allowed_help(group):
+            embed.description = f"**You are not allowed to use this command.**\n"
+        else:
+            embed_desc = self.get_command_embeded_description(group)
+            embed.description = "\n".join(embed_desc)
+            filtered = await self.filter_commands(group.commands, sort=self.sort_commands)
+            if len(filtered) > 0:
+                field_value = self.get_formated_commands(filtered)  # , heading=self.commands_heading
+                embed.add_field(name="Sub-Commands:", value="\n".join(field_value), inline=False)
 
-        embed = self.add_command_aliases(group, embed)
-        embed = self.add_examples(group, embed)
+            embed = self.add_command_aliases(group, embed)
+            embed = self.add_examples(group, embed)
 
-        note = self._get_ending_note(group)
-        if note:
-            embed.add_field(name="\N{Zero Width Space}", value=note, inline=False)
+            note = self._get_ending_note(group)
+            if note:
+                embed.add_field(name="\N{Zero Width Space}", value=note, inline=False)
 
         await self.send_embed(embed)
 
