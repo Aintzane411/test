@@ -251,7 +251,7 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
         embed = discord.Embed(title=f'{command_name}  -  {bot_name} Help', color=help_embed_color)
 
         if not await self.is_user_allowed_help(command):
-            embed.description = f"**You are not allowed to use this command.**\n"
+            embed.description = f"You are not allowed to use the **{command_name}** command.\n"
         else:
             embed_descrip = self.get_command_embeded_description(command)
 
@@ -268,7 +268,7 @@ class EmbedHelp(dpy_cmds.DefaultHelpCommand):
         embed = discord.Embed(title=f'{command_name}  -  {bot_name} Help', color=help_embed_color)
 
         if not await self.is_user_allowed_help(group):
-            embed.description = f"**You are not allowed to use this command.**\n"
+            embed.description = f"You are not allowed to use the **{command_name}** command.\n"
         else:
             embed_desc = self.get_command_embeded_description(group)
             embed.description = "\n".join(embed_desc)
