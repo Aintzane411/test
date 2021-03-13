@@ -22,6 +22,7 @@ extensions = (
     'cogs.helpCmd',
     'cogs.roles',
     'cogs.dev',
+    'cogs.userManagementCog'
 )
 
 
