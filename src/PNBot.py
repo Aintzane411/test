@@ -697,8 +697,8 @@ async def create_interview(guild: discord.Guild, member: discord.Member, raid_le
 
     new_perms = category_perms = interview_category.overwrites  # Inherit perms from the category.
 
-    new_perms[greeter_role] = discord.PermissionOverwrite(send_messages=True, read_messages=True)  # Greeters
-    new_perms[member] = discord.PermissionOverwrite(send_messages=True, read_messages=True)  # The user who just joined
+    new_perms[greeter_role] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # Greeters
+    new_perms[member] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # The user who just joined
     new_perms[ignore_interview_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # Does nothing on Nest...
 
     # Add role overrides for any user with the ignore_interview role
@@ -767,22 +767,32 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         await interview.check_remove_reactions(payload)
 
 if __name__ == '__main__':
-    #
-    # with open('config.json') as json_data_file:
-    #     config = json.load(json_data_file)
-    #
-    # with open('guildSettings.json') as json_data_file:
-    #     guild_settings = json.load(json_data_file)
-    #     bot.primary_guild_id = 433446063022538753
-    #     bot.load_guild_settings(433446063022538753, guild_settings)  # PN Server.
 
-    with open('testConfigs/config.dev.json') as json_data_file:
-        config = json.load(json_data_file)
+    try:  # Try to open the production config files first
+        # PN Server.
+        with open('config.json') as json_data_file:
+            config = json.load(json_data_file)
+        PN_Guild_ID = 433446063022538753
+        with open('guildSettings.json') as json_data_file:
+            guild_settings = json.load(json_data_file)
+            bot.primary_guild_id = PN_Guild_ID
+            bot.load_guild_settings(PN_Guild_ID, guild_settings)
 
-    with open('testConfigs/guildSettings.json') as json_data_file:
-        guild_settings = json.load(json_data_file)
-        bot.primary_guild_id = 641244873902784522
-        bot.load_guild_settings(641244873902784522, guild_settings)  # Test Server.
+        log.info("Loaded Production config files for main PN Guild")
+
+    except FileNotFoundError as e:
+        # If the production config files can't be found, we are in a dev environment. Load the Dev Config files.
+        # Test Server.
+        PNBot_Dev_Guild = 641244873902784522
+        with open('testConfigs/config.dev.json') as json_data_file:
+            config = json.load(json_data_file)
+
+        with open('testConfigs/guildSettings.json') as json_data_file:
+            guild_settings = json.load(json_data_file)
+            bot.primary_guild_id = PNBot_Dev_Guild
+            bot.load_guild_settings(PNBot_Dev_Guild, guild_settings)
+
+        log.info("Loaded Dev config files for PNBot Dev Guild")
 
     db_pool: asyncpg.pool.Pool = asyncio.get_event_loop().run_until_complete(pDB.create_db_pool(config['db_address']))
     bot.db = db_pool
