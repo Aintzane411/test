@@ -48,7 +48,9 @@ async def create_db_pool(uri: str) -> asyncpg.pool.Pool:
 @db_deco
 async def add_new_interview(pool: asyncpg.pool.Pool, sid: int, member_id: int, username: str, channel_id: int,
                                   question_number: int = 0, interview_finished: bool = False, paused: bool = False,
-                                  interview_type: str = 'unknown', read_rules: bool = False, join_ts: datetime = None):
+                                  interview_type: str = 'unknown', read_rules: bool = False, join_ts: datetime = None,
+                                  interview_type_msg_id = None):
+
     async with pool.acquire() as conn:
         conn: asyncpg.connection.Connection
         # Convert ts to str
@@ -57,18 +59,18 @@ async def add_new_interview(pool: asyncpg.pool.Pool, sid: int, member_id: int, u
 
         ts = join_ts.timestamp()
         await conn.execute(
-            "INSERT INTO interviews(guild_id, member_id, user_name, channel_id, question_number, interview_finished, paused, interview_type, read_rules, join_ts) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-            sid, member_id, username, channel_id, question_number, interview_finished, paused, interview_type, read_rules, ts)
+            "INSERT INTO interviews(guild_id, member_id, user_name, channel_id, question_number, interview_finished, paused, interview_type, read_rules, join_ts, interview_type_msg_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            sid, member_id, username, channel_id, question_number, interview_finished, paused, interview_type, read_rules, ts, interview_type_msg_id)
 
 
 # --- Updates --- #
 @db_deco
-async def update_interview_all_mutable(pool: asyncpg.pool.Pool, cid: int, mid: int, question_number: int, interview_finished: bool, paused: bool, interview_type: str, read_rules: bool):
+async def update_interview_all_mutable(pool: asyncpg.pool.Pool, cid: int, mid: int, question_number: int, interview_finished: bool, paused: bool, interview_type: str, read_rules: bool, interview_type_msg_id: Optional[int]):
     async with pool.acquire() as conn:
         conn: asyncpg.connection.Connection
         await conn.execute(
-            "UPDATE interviews SET question_number = $1, interview_finished = $2, paused = $3, interview_type = $4, read_rules = $5 WHERE channel_id = $6 AND member_id = $7",
-            question_number, interview_finished, paused, interview_type, read_rules, cid, mid)
+            "UPDATE interviews SET question_number = $1, interview_finished = $2, paused = $3, interview_type = $4, read_rules = $5 WHERE channel_id = $6 AND member_id = $7 AND interview_type_msg_id = $8",
+            question_number, interview_finished, paused, interview_type, read_rules, cid, mid, interview_type_msg_id)
 
 
 @db_deco
@@ -116,23 +118,34 @@ async def update_interview_read_rules(pool: asyncpg.pool.Pool, cid: int, mid: in
             read_rules, cid, mid)
 
 
+@db_deco
+async def update_interview_type_msg_id(pool: asyncpg.pool.Pool, cid: int, mid: int, interview_type_msg_id: int):
+    async with pool.acquire() as conn:
+        conn: asyncpg.connection.Connection
+        await conn.execute(
+            "UPDATE interviews SET interview_type_msg_id = $1 WHERE channel_id = $2 AND member_id = $3",
+            interview_type_msg_id, cid, mid)
+
+
+
 # --- Selects --- #
 interview_row_map = ('guild_id', 'member_id', 'user_name', 'channel_id', 'question_number', 'interview_finished',
-                     'paused', 'interview_type', 'read_rules', 'join_ts')
+                     'paused', 'interview_type', 'read_rules', 'join_ts', 'interview_type_msg_id')
 
 
 def row_to_interview_dict(row: aiosqlite.Row) -> Dict:
     interview_dict = {
-        interview_row_map[0]: row[0],   # Guild ID
-        interview_row_map[1]: row[1],   # Member_id
-        interview_row_map[2]: row[2],   # user_name
-        interview_row_map[3]: row[3],   # channel_id
-        interview_row_map[4]: row[4],   # quest_num
-        interview_row_map[5]: bool(row[5]),   # int_fin
-        interview_row_map[6]: bool(row[6]),   # Paused
-        interview_row_map[7]: row[7],   # interview_type
-        interview_row_map[8]: bool(row[8]),   # read_rules
-        interview_row_map[9]: datetime.fromtimestamp(row[9])  # join_ts
+        interview_row_map[0]:   row[0],         # Guild ID
+        interview_row_map[1]:   row[1],         # Member_id
+        interview_row_map[2]:   row[2],         # user_name
+        interview_row_map[3]:   row[3],         # channel_id
+        interview_row_map[4]:   row[4],         # quest_num
+        interview_row_map[5]:   bool(row[5]),   # int_fin
+        interview_row_map[6]:   bool(row[6]),   # Paused
+        interview_row_map[7]:   row[7],         # interview_type
+        interview_row_map[8]:   bool(row[8]),   # read_rules
+        interview_row_map[9]:   datetime.fromtimestamp(row[9]),  # join_ts
+        interview_row_map[10]:  row[10]         # interview_type_msg_id
     }
     return interview_dict
 
@@ -149,6 +162,7 @@ class InterviewData:
     interview_type: str
     read_rules: bool
     join_ts: int
+    interview_type_msg_id: Optional[int]
 
     def joined_at(self) -> Optional[datetime]:
         """Get the time (if any) that user joined."""
@@ -248,8 +262,10 @@ class AllowedRole:
     description: Optional[str]
     emoji: Optional[int]
 
-    async def remove(self, pool: asyncpg.pool.Pool, role_id: int):
-        await delete_role(pool, self.guild_id, role_id)
+    # async def remove(self, pool: asyncpg.pool.Pool, role_id: int):
+    #     await delete_role(pool, self.guild_id, role_id)
+    async def remove(self, pool: asyncpg.pool.Pool):
+        await delete_role(pool, self.guild_id, self.role_id)
 
 
 @dataclass
@@ -498,6 +514,7 @@ async def move_role_cat(pool: asyncpg.pool.Pool, cat_id: int, cat_pos: int):
                            UPDATE role_categories SET cat_position = $1 WHERE cat_id = $2
                             """, cat_pos, cat_id)
 
+
 @db_deco
 async def delete_role_cat(pool: asyncpg.pool.Pool, gid: int, cat_id: int):
     async with pool.acquire() as conn:
@@ -507,25 +524,113 @@ async def delete_role_cat(pool: asyncpg.pool.Pool, gid: int, cat_id: int):
              cat_id)
 
 
+# ----- Cached Messages DB Functions ----- #
+
+@dataclass
+class CachedMessage:
+    message_id: int
+    guild_id: int
+    user_id: int
+    ts: datetime
+    content: str
+    system_pkid: Optional[str]
+    member_pkid: Optional[str]
+    pk_system_account_id: Optional[int]
+
+
+@db_deco
+async def cache_message(pool, sid: int, message_id: int, author_id: int, content: str, timestamp: datetime):
+    if timestamp is None:
+        log.info("FDSF")
+    msg_ts = timestamp.timestamp()
+    async with pool.acquire() as conn:
+        await conn.execute("INSERT INTO messages(guild_id, message_id, user_id, content, ts) VALUES($1, $2, $3, $4, $5)", sid, message_id, author_id, content, msg_ts)
+
+
+@db_deco
+async def cache_pk_message(pool, sid: int, message_id: int, author_id: int, content: str, timestamp: datetime, system_pkid:str, member_pkid:str):
+    """Only use for history population. Timestamp must be in UTC"""
+    msg_ts = timestamp.timestamp()
+    async with pool.acquire() as conn:
+        await conn.execute("INSERT INTO messages(guild_id, message_id, user_id, content, ts, system_pkid, member_pkid) VALUES($1, $2, $3, $4, $5, $6, $7)", sid, message_id, author_id, content, msg_ts, system_pkid, member_pkid)
+
+
+@db_deco
+async def get_cached_message(pool, sid: int, message_id: int) -> Optional[CachedMessage]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM messages WHERE message_id = $1", message_id)
+        return CachedMessage(**row) if row is not None else None
+
+
+@db_deco
+async def get_cached_messages_after_timestamp(pool, timestamp: datetime, sid: int, user_id: int) -> List[CachedMessage]:
+    """ Timestamp must be in UTC"""
+    async with pool.acquire() as conn:
+        # now = datetime.now()
+        # offset = timedelta(hours=hours)
+        # before = now - offset
+        before = timestamp.timestamp()
+        raw_rows = await conn.fetch(" SELECT * from messages where ts > $1 and guild_id = $2 AND user_id = $3", before, sid, user_id)
+        messages = [CachedMessage(**row) for row in raw_rows]
+        return messages
+
+
+@db_deco
+async def get_all_cached_messages_after_timestamp(pool, timestamp: datetime, sid: int) -> List[CachedMessage]:
+    """ Timestamp must be in UTC"""
+    async with pool.acquire() as conn:
+        # now = datetime.now()
+        # offset = timedelta(hours=hours)
+        # before = now - offset
+        before = timestamp.timestamp()
+        raw_rows = await conn.fetch(" SELECT * from messages where ts > $1 and guild_id = $2", before, sid)
+        messages = [CachedMessage(**row) for row in raw_rows]
+        return messages
+
+
+@db_deco
+async def update_cached_message_pk_details(pool, sid: int, message_id: int, system_pkid: str, member_pkid: str,
+                                           pk_system_account_id: int):
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE messages SET system_pkid = $1, member_pkid = $2, user_id = $3 WHERE message_id = $4",
+                           system_pkid, member_pkid, pk_system_account_id, message_id)
+
+
+@db_deco
+async def delete_cached_message(pool, sid: int, message_id: int):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM messages WHERE message_id = $1", message_id)
+
+
+@db_deco
+async def get_number_of_rows_in_messages(pool, table: str = "messages") -> int:  # Slow! But only used for g!top so okay.
+    async with pool.acquire() as conn:
+        num_of_rows = await conn.fetchval("SELECT COUNT(*) FROM messages")
+        return num_of_rows
+
+
 # ---------- Table Creation ---------- #
 @db_deco
 async def create_tables(pool: asyncpg.pool.Pool):
     async with pool.acquire() as conn:
         conn: asyncpg.connection.Connection
         # TODO: Move interview_type over to an int and use an enum?
+
+        # ALTER TABLE interviews ADD COLUMN interview_type_msg_id BIGINT DEFAULT NULL;
         await conn.execute('''
                                CREATE TABLE if not exists interviews(
-                               guild_id             BIGINT NOT NULL,
-                               member_id            BIGINT NOT NULL,
-                               user_name            TEXT NOT NULL,
-                               channel_id           BIGINT NOT NULL,
-                               question_number      INT DEFAULT 0,
-                               interview_finished   BOOLEAN default FALSE,
-                               paused               BOOLEAN default FALSE,
-                               interview_type       TEXT default 'unknown',   
-                               read_rules           BOOLEAN default FALSE,
-                               join_ts              BIGINT NOT NULL,
-                               PRIMARY KEY          (member_id, channel_id)
+                               guild_id                 BIGINT NOT NULL,
+                               member_id                BIGINT NOT NULL,
+                               user_name                TEXT NOT NULL,
+                               channel_id               BIGINT NOT NULL,
+                               question_number          INT DEFAULT 0,
+                               interview_finished       BOOLEAN default FALSE,
+                               paused                   BOOLEAN default FALSE,
+                               interview_type           TEXT default 'unknown',   
+                               read_rules               BOOLEAN default FALSE,
+                               join_ts                  BIGINT NOT NULL,
+                               interview_type_msg_id    BIGINT DEFAULT NULL,
+                               PRIMARY KEY              (member_id, channel_id)
                               );
                         ''')
 
