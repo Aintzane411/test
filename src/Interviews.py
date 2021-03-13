@@ -82,21 +82,24 @@ class Interview:
 
         self._interview_type = self.NOT_STARTED  # Converted.
         self._rule_confirmations = []
+        self._interview_type_prompt_msg_id: Optional[int] = None
 
         # -- Not Persistent --
         self.waiting_for_msgs = False
         self.questions = self.interviews.settings['interview_questions']
         self.question_lock = asyncio.Lock()
 
+
     async def init(self):
         # Only add a new DB entry if the interview object has been instantiated with Member and Channel objects. Otherwise, the object has been instantiated for load from DB Backup.
         if self.member is not None and self.channel is not None:
             await pDB.add_new_interview(self.bot.db, self.guild_id, self.member_id, self.member.display_name,
-                                       self.channel_id, self.question_number, self.interview_finished,
-                                       self.paused, self.interview_type, read_rules=False)
+                                        self.channel_id, self.question_number, self.interview_finished,
+                                        self.paused, self.interview_type, read_rules=False, interview_type_msg_id=None)
 
             # Since this interview was just created, send prompt for interview type to get everything rolling.
             await self.send_interview_type_prompt()
+
 
     # -- Interview Type Setter/Getters -- #
     @property
@@ -115,6 +118,15 @@ class Interview:
     async def set_question_number(self, value):
         self._question_number = value
         await pDB.update_interview_question_number(self.bot.db, self.channel_id, self.member_id, self._question_number)
+
+    # --- Interview Type Message ID Setters/Getters --- #
+    @property
+    def interview_type_prompt_msg_id(self):
+        return self._interview_type_prompt_msg_id
+
+    async def set_interview_type_prompt_msg_id(self, value: int):
+        self._interview_type_prompt_msg_id = value
+        await pDB.update_interview_type_msg_id(self.bot.db, self.channel_id, self.member_id, self._interview_type_prompt_msg_id)
 
     # -- Interview Finished Setter/Getters -- #
     @property
@@ -255,13 +267,19 @@ class Interview:
         for emoji, _ in self.interview_tracks:
             await ready_msg.add_reaction(emoji)
 
+        await self.set_interview_type_prompt_msg_id(ready_msg.id)
+
 
     async def check_add_reactions(self, payload: discord.RawReactionActionEvent):
 
         # Begin checking the different possible react actions.
-        if await self.check_interview_type_reaction(payload.emoji, payload.user_id):
+        if await self.check_interview_type_reaction(payload.emoji, payload.user_id, payload.message_id):
             # Begin the interview.
             return
+
+        elif self.interview_type_prompt_msg_id is not None and payload.message_id != self.interview_type_prompt_msg_id:
+            # If we don't have record of the interview type msg id assume it is that.:
+            return  # Don't remove reactions on other messages.
         else:
             # Interview is already happening, reaction made by user who is not the interviewie, etc.
             # Try to remove the invalid reaction.
@@ -277,10 +295,11 @@ class Interview:
                         return
 
 
-    async def check_interview_type_reaction(self, emoji: discord.PartialEmoji, user_id: int):
+    async def check_interview_type_reaction(self, emoji: discord.PartialEmoji, user_id: int, message_id: int):
 
         # ensure that the person reacting is the interviewee and that the reaction is a valid interview type emoji
-        if user_id != self.member.id or str(emoji) not in self.interview_emojis:
+        if user_id != self.member.id or str(emoji) not in self.interview_emojis or \
+                (self.interview_type_prompt_msg_id is not None and message_id != self.interview_type_prompt_msg_id):  # If we don't have record of the interview type msg id assume it is that.
             return False
 
         # If the interview track has already been set, abort.
@@ -306,19 +325,19 @@ class Interview:
     async def check_remove_reactions(self, payload: discord.RawReactionActionEvent):
 
         # Begin checking the different possible react actions.
-        if await self.check_interview_type_reaction_remove(payload.emoji, payload.user_id):
+        if await self.check_interview_type_reaction_remove(payload.emoji, payload.user_id, payload.message_id):
             return
         else:
             return
 
 
-    async def check_interview_type_reaction_remove(self, emoji: discord.PartialEmoji, user_id: int):
+    async def check_interview_type_reaction_remove(self, emoji: discord.PartialEmoji, user_id: int, message_id: int):
         """
         Checks to see if the interview track should be reset based on who removed the reaction and which reaction was removed.
         """
 
-        # ensure that the reaction removed belongs to the interviewee and that the reaction is a valid interview type emoji
-        if user_id != self.member.id or str(emoji) not in self.interview_emojis:
+        # ensure that the reaction removed belongs to the interviewee, that the reaction is a valid interview type emoji, and that this is the interview type question.
+        if user_id != self.member.id or str(emoji) not in self.interview_emojis or (self.interview_type_prompt_msg_id is not None and message_id != self.interview_type_prompt_msg_id):
             return False
 
         # If the interview track has not been set, abort because this is a weird state to be in.....
@@ -446,7 +465,7 @@ class Interview:
         self.LOG.info("Interview: save_to_db()")
         self.LOG.info(f"Saving {self.member.display_name}'s interview")
         read_rules = True if len(self.rule_confirmations) > 0 else False
-        await pDB.update_interview_all_mutable(self.bot.db, self.channel_id, self.member_id, self.question_number, self.interview_finished, self.paused, self.interview_type, read_rules)
+        await pDB.update_interview_all_mutable(self.bot.db, self.channel_id, self.member_id, self.question_number, self.interview_finished, self.paused, self.interview_type, read_rules, self.interview_type_prompt_msg_id)
 
     async def load_json(self, json_data: dict):
         """
