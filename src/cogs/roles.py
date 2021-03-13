@@ -15,7 +15,7 @@ from discord.ext import commands
 import eCommands
 
 import pDB
-from utilities.utils import send_embed, pn_embed, is_team_member, is_server_member
+from utilities.utils import send_embed, pn_embed, is_team_member, is_server_member, purge_deleted_roles
 from utilities.roleParser import parse_csv_roles, BetterRoleConverter
 from embeds import add_and_removed_roles_embed
 # from utilities.paginator import FieldPages
@@ -168,8 +168,16 @@ class AdminRemoveAllowedRoles:
         await self.ui.finish()
 
     async def prompt_for_roles_to_remove(self):
+
+        allowed_roles = await pDB.get_roles_in_guild(self.ctx.bot.db, self.ctx.guild.id)
+        purged_roles = await purge_deleted_roles(self.ctx, allowed_roles)
+        if len(purged_roles) > 0:
+            purged_role_msg = f"\n\n(Note, {len(purged_roles)} roles that were previously deleted from discord have been purged.)"
+        else:
+            purged_role_msg = f""
+
         embed = pn_embed(title=f"Send Roles to Remove",
-                         desc="You may send a single role, or multiple roles separated by a comma.")
+                         desc=f"You may send a single role, or multiple roles separated by a comma.{purged_role_msg}")
 
         self.ui = StringReactPage(embed=embed, remove_msgs=False)
 
@@ -865,7 +873,7 @@ class Roles(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     @commands.guild_only()
     @eCommands.command(name="disallow_role", aliases=["disallow_roles"], brief="Disallows a role from being user settable.",
-                       description="Allows you to add a new role for users to set.\n"
+                       description="Allows you to disallow a role for users to set.\n"
                                    "This command is interactive and no arguments are required",
                        examples=[""],
                        category="Role Management")

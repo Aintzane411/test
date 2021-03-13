@@ -3,16 +3,19 @@
 """
 import logging
 import json
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List, Union
 
+import asyncio
 import discord
 from discord.ext import commands
+from discord.embeds import EmptyEmbed
 
 from utilities.moreColors import pn_orange
 from exceptions import NotTeamMember, NotMember, NotTeamOrPotentialMember
 
 if TYPE_CHECKING:
     from PNDiscordBot import PNBot
+    from pDB import RoleCategory, AllowedRole
 
 log = logging.getLogger("PNBot")
 
@@ -158,6 +161,84 @@ def is_server_member():
                 raise NotMember()
         return True
     return commands.check(predicate)
+
+
+async def purge_deleted_roles(ctx: commands.Context, allowed_roles: List['AllowedRole']) -> List[int]:
+    """Deletes any roles that may linger in the DB that have already been deleted in discord."""
+
+    guild_roles: List[discord.Role] = ctx.guild.roles[1:]  # Get all the roles from the guild EXCEPT @everyone.
+    purged_roles = []
+    for allowed_role in allowed_roles:
+        if discord.utils.get(guild_roles, id=allowed_role.role_id) is None:
+            purged_roles.append(allowed_role.role_id)
+
+            await allowed_role.remove(ctx.bot.db)
+
+    return purged_roles
+
+
+async def send_long_msg(channel: [discord.TextChannel, commands.Context], message: str, code_block: bool = False, code_block_lang: str = "python"):
+
+    if code_block:
+        if len(code_block_lang) > 0:
+            code_block_lang = code_block_lang + "\n"
+        code_block_start = f"```{code_block_lang}"
+        code_block_end = "```"
+        code_block_extra_length = len(code_block_start) + len(code_block_end)
+        chunks = split_text(message, max_size=2000 - code_block_extra_length)
+        message_chunks = [code_block_start + chunk + code_block_end for chunk in chunks]
+
+    else:
+        message_chunks = split_text(message, max_size=2000)
+
+    for chunk in message_chunks:
+        await channel.send(chunk)
+
+
+async def send_long_embed(channel: [discord.TextChannel, commands.Context], title: str, message: str):
+
+    message_chunks = split_text(message, max_size=2000)
+
+    for i, chunk in enumerate(message_chunks):
+        if len(message_chunks) > 1:
+            embed_title = f"{title} ({i+1}/{len(message_chunks)})"
+        else:
+            embed_title = title
+        embed = pn_embed(embed_title, chunk)
+        await channel.send(embed=embed)
+        await asyncio.sleep(0.5)
+
+
+def split_text(text: Union[str, List], max_size: int = 2000, delimiter: str = "\n") -> List[str]:
+    """Splits the input text such that no entry is longer that the max size """
+    delim_length = len(delimiter)
+
+    if isinstance(text, str):
+        if len(text) < max_size:
+            return [text]
+        text = text.split(delimiter)
+    else:
+        if sum(len(i) for i in text) < max_size:
+            return ["\n".join(text)]
+
+    output = []
+    tmp_str = ""
+    count = 0
+    for fragment in text:
+        fragment_length = len(fragment) + delim_length
+        if fragment_length > max_size:
+            raise ValueError("A single line exceeded the max length. Can not split!")  # TODO: Find a better way than throwing an error.
+        if count + fragment_length > max_size:
+            output.append(tmp_str)
+            tmp_str = ""
+            count = 0
+
+        count += fragment_length
+        tmp_str += f"{fragment}{delimiter}"
+
+    output.append(tmp_str)
+
+    return output
 
 
 class GuildSettings:
