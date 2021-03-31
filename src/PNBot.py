@@ -6,7 +6,7 @@ import json
 import logging
 import asyncio
 import traceback
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
 import asyncio
 # from datetime import datetime, timedelta
 import textwrap
@@ -682,37 +682,59 @@ async def handle_joining_user(guild: discord.Guild, member: discord.Member, raid
         pass
 
 
-async def create_interview(guild: discord.Guild, member: discord.Member, raid_level: int = 0):
+async def create_interview(guild: discord.Guild, interviewee: discord.Member, raid_level: int = 0):
     """
     Creates an interview channel for a given member, then starts the interview.
     """
 
     interview_category: discord.CategoryChannel = await get_category(guild, guild_settings['interview_category_id'])
 
-    channel_name = "{}-Interview".format(member.name, member.discriminator)
-    channel_topic = "Temporary interview room for {}".format(member.name)
+    channel_name = "{}-Interview".format(interviewee.name, interviewee.discriminator)
+    channel_topic = "Temporary interview room for {}".format(interviewee.name)
+
     member_role = guild.get_role(guild_settings['member_role_id'])
     ignore_interview_role: discord.Role = guild.get_role(guild_settings["hide_interviews_id"])
     greeter_role = guild.get_role(guild_settings['team_role_id'])
 
+    cooldown_configs: List[Dict] = bot.guild_setting(guild.id, 'cooldown_config')
+    cooldown_roles: List[discord.Role] = [guild.get_role(cooldown_config["role"]) for cooldown_config in cooldown_configs]
+
+    inactive_configs: List[Dict] = bot.guild_setting(guild.id, 'inactive_member_configs')
+    inactive_roles: List[discord.Role] = [guild.get_role(inactive_config["role"]) for inactive_config in inactive_configs]
+
     new_perms = category_perms = interview_category.overwrites  # Inherit perms from the category.
 
-    new_perms[greeter_role] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # Greeters
-    new_perms[member] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # The user who just joined
-    new_perms[ignore_interview_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # Does nothing on Nest...
+    """
+    Perms should be set as follows for proper functionality:
+    @Everyone: All perms Inherit. This is essential for making the no interviews role work.
+    @Hide Interviews: Read: Deny
+    @Member: Read: Inherit
+    @Greeter: Read: Allow, Send: Allow
+    @Cooldown & @Inactive Member: Deny
+    Role override for everyone with no roles -> Read: Deny.
+    Role override for interviewee -> Read: Allow, Send: Allow.
+    """
 
-    # Add role overrides for any user with the ignore_interview role
-    ignored_members = ignore_interview_role.members
-    for ignore_member in ignored_members:
-        new_perms[ignore_member] = discord.PermissionOverwrite(send_messages=False, read_messages=False)
+    new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=None, read_messages=None)       # @Everyone: All perms Inherit. This is essential for making the no interviews role work.
 
-    if raid_level == 0:  # No Raid Protection Enabled.
-        new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=False, read_messages=True)  # @Everyone
-        new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=True)  # The Member Role
+    new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=None)  # The Member Role. Doesn't need Read perms. It will defacto get them even w/ None. This is essential for making the no interviews role work.
+    new_perms[greeter_role] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # Make sure greeters can see and interact with interviews.
 
-    else:  # Raid Protection Enabled
+    # Prohibit cooldown, inactive members, & Hide interviews from seeing the interviews
+    for deny_access_role in cooldown_roles + inactive_roles + [ignore_interview_role]:
+        new_perms[deny_access_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)
+
+    # Add role overrides for any user with no roles, except the interviewee
+    roleless_members = [member for member in guild.members if len(member.roles) == 1]
+    for roleless_member in roleless_members:
+        if roleless_member != interviewee:
+            new_perms[roleless_member] = discord.PermissionOverwrite(send_messages=False, read_messages=False)
+
+    if raid_level > 0:  # Raid Protection Enabled
         new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # @Everyone
         new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=False)  # The Member Role
+
+    new_perms[interviewee] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # The user who just joined
 
     # Create the channel
     interview_channel = await guild.create_text_channel(channel_name, category=interview_category,
@@ -720,12 +742,12 @@ async def create_interview(guild: discord.Guild, member: discord.Member, raid_le
 
     await asyncio.sleep(1)  # Wait a sec after the channel is created before sending anything.
 
-    await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=member))
+    await interview_channel.send(guild_settings['welcome_message'].format(guild=guild, user=interviewee))
 
     await asyncio.sleep(1)  # Wait another sec before opening the interview.
 
     # Open the interview.
-    interview = await open_interviews.new_interview(member, interview_channel)
+    interview = await open_interviews.new_interview(interviewee, interview_channel)
 
 
 @bot.event
