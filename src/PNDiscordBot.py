@@ -58,7 +58,7 @@ class PNBot(commands.Bot):
         Get the guild settings for a guild.
         """
         if guild_id in self._guild_settings:
-            if key in self._guild_settings[guild_id][key]:
+            if key in self._guild_settings[guild_id]:
                 return self._guild_settings[guild_id][key]
         return None
 
