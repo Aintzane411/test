@@ -12,10 +12,10 @@ import eCommands
 import asyncio
 import dateparser
 from utilities.pluralKitAPI import get_pk_message, PKAPIUnavailable, CouldNotConnectToPKAPI, UnknownPKError
-from utilities.utils import is_team_member, send_long_msg, send_long_embed, pn_embed
+from utilities.utils import is_team_member, send_long_msg, send_long_embed, pn_embed, get_channel
 from utilities.moreColors import pn_orange
 from datetime import datetime, timedelta
-from embeds import std_embed
+from embeds import std_embed, log_welcome_back
 from utilities.paginator import FieldPages, TextPages, Pages, UnnumberedPages
 
 from uiElements import StringReactPage, BoolPage
@@ -112,9 +112,8 @@ async def isolate_inactive_member(ctx: commands.Context, member: Union[discord.U
 
 
     if len(roles_unable_to_remove) > 0:
-        unremovable_roles_str = ""
-        for role in roles_unable_to_remove:
-            unremovable_roles_str += f"{role.mention}, "
+        unremovable_roles_strs = [f"{role.mention}" for role in roles_unable_to_remove]
+        unremovable_roles_str = f", ".join(unremovable_roles_strs)
         await ctx.send(embed=pn_embed(title=f"**Unable to remove the following roles from {member.display_name}**",
                                       desc=unremovable_roles_str))
 
@@ -125,14 +124,14 @@ async def isolate_inactive_member(ctx: commands.Context, member: Union[discord.U
     welcome_back_channel_id: int = ctx.bot.guild_setting(ctx.guild.id, 'welcome_back_channel_id')
     guild: discord.Guild = ctx.guild
     welcome_back_ch: discord.TextChannel = guild.get_channel(welcome_back_channel_id)
-    if welcome_back_ch is not None:
-        await welcome_back_ch.send("\N{Waving Hand Sign}")
-        await welcome_back_ch.send(f"Hey there! Long time no see {member.display_name}!!!!\n"
-                                   f"\N{ZERO WIDTH SPACE}\n"
-                                   f"No worries, you're not in trouble or anything, you've just been moved to this channel since it's been a while since you last spoke here at Nest. This way we can better protect our members.\n"
-                                   f"\N{ZERO WIDTH SPACE}\n"
-                                   f"You're still more than welcome here and we would absolutely love to get to talk to you again \N{Slightly Smiling Face}\n"
-                                   f"Just say hi and a staff member will restore your access to the rest of the server.")
+    # if welcome_back_ch is not None:
+    #     await welcome_back_ch.send("\N{Waving Hand Sign}")
+    #     await welcome_back_ch.send(f"Hey there! Long time no see {member.display_name}!!!!\n"
+    #                                f"\N{ZERO WIDTH SPACE}\n"
+    #                                f"No worries, you're not in trouble or anything, you've just been moved to this channel since it's been a while since you last spoke here at Nest. This way we can better protect our members.\n"
+    #                                f"\N{ZERO WIDTH SPACE}\n"
+    #                                f"You're still more than welcome here and we would absolutely love to get to talk to you again \N{Slightly Smiling Face}\n"
+    #                                f"Just say hi and a staff member will restore your access to the rest of the server.")
 
 
 async def restore_inactive_member(ctx: commands.Context, member: Union[discord.User, discord.Member]):
@@ -159,10 +158,13 @@ async def restore_inactive_member(ctx: commands.Context, member: Union[discord.U
 
     if len(roles_unable_to_add) > 0:
         guild: discord.Guild = ctx.guild
-        unaddable_roles_str = ""
+
+        unaddable_roles_strs = []
         for raw_role in roles_unable_to_add:
             role = guild.get_role(raw_role.id)
-            unaddable_roles_str += f"{role.mention}, "
+            unaddable_roles_strs.append(f"{role.mention}")
+
+        unaddable_roles_str = f", ".join(unaddable_roles_strs)
         await ctx.send(embed=pn_embed(title=f"**Unable to add back the following roles to {member.display_name}**",
                                       desc=unaddable_roles_str))
 
@@ -171,6 +173,7 @@ async def restore_inactive_member(ctx: commands.Context, member: Union[discord.U
 
     await pDB.add_inactivity_event(ctx.bot.db, ctx.guild.id, member.id, 0, 1, None)
     log.info("Restoration Complete")
+
 
 
 async def move_member_into_isolation_room(ctx: commands.Context, member: Union[discord.User, discord.Member], isolation_role: Union[discord.Role, discord.Object], reason="", inactive_event=False, cooldown_event=False):
@@ -195,9 +198,9 @@ async def move_member_into_isolation_room(ctx: commands.Context, member: Union[d
     log.info("Member Isolation Complete. Adding Isolation Role")
 
     if len(roles_unable_to_remove) > 0:
-        unremovable_roles_str = ""
-        for role in roles_unable_to_remove:
-            unremovable_roles_str += f"{role.mention}, "
+        unremovable_roles_strs = [f"{role.mention}" for role in roles_unable_to_remove]
+        unremovable_roles_str = f", ".join(unremovable_roles_strs)
+
         await ctx.send(embed=pn_embed(title=f"**Unable to remove the following roles from {member.display_name}**",
                                       desc=unremovable_roles_str))
 
@@ -205,17 +208,17 @@ async def move_member_into_isolation_room(ctx: commands.Context, member: Union[d
 
     if inactive_event:
         await pDB.add_inactivity_event(ctx.bot.db, ctx.guild.id, member.id, current_level=1, previous_level=0, reason=None)
-        welcome_back_channel_id: int = ctx.bot.guild_setting(ctx.guild.id, 'welcome_back_channel_id')
-        guild: discord.Guild = ctx.guild
-        welcome_back_ch: discord.TextChannel = guild.get_channel(welcome_back_channel_id)
-        if welcome_back_ch is not None:
-            await welcome_back_ch.send("\N{Waving Hand Sign}")
-            await welcome_back_ch.send(f"Hey there! Long time no see {member.display_name}!!!!\n"
-                                       f"\N{ZERO WIDTH SPACE}\n"
-                                       f"No worries, you're not in trouble or anything, you've just been moved to this channel since it's been a while since you last spoke here at Nest. This way we can better protect our members.\n"
-                                       f"\N{ZERO WIDTH SPACE}\n"
-                                       f"You're still more than welcome here and we would absolutely love to get to talk to you again \N{Slightly Smiling Face}\n"
-                                       f"Just say hi and a staff member will restore your access to the rest of the server.")
+        # welcome_back_channel_id: int = ctx.bot.guild_setting(ctx.guild.id, 'welcome_back_channel_id')
+        # guild: discord.Guild = ctx.guild
+        # welcome_back_ch: discord.TextChannel = guild.get_channel(welcome_back_channel_id)
+        # if welcome_back_ch is not None:
+        #     await welcome_back_ch.send("\N{Waving Hand Sign}")
+        #     await welcome_back_ch.send(f"Hey there! Long time no see {member.display_name}!!!!\n"
+        #                                f"\N{ZERO WIDTH SPACE}\n"
+        #                                f"No worries, you're not in trouble or anything, you've just been moved to this channel since it's been a while since you last spoke here at Nest. This way we can better protect our members.\n"
+        #                                f"\N{ZERO WIDTH SPACE}\n"
+        #                                f"You're still more than welcome here and we would absolutely love to get to talk to you again \N{Slightly Smiling Face}\n"
+        #                                f"Just say hi and a staff member will restore your access to the rest of the server.")
 
 
 async def move_member_out_of_isolation_room(ctx: commands.Context, member: Union[discord.User, discord.Member], isolation_role: Union[discord.Role, discord.Object], reason="", inactive_event=False, cooldown_event=False):
@@ -240,10 +243,11 @@ async def move_member_out_of_isolation_room(ctx: commands.Context, member: Union
 
     if len(roles_unable_to_add) > 0:
         guild: discord.Guild = ctx.guild
-        unaddable_roles_str = ""
+        unaddable_roles_strs = []
         for raw_role in roles_unable_to_add:
             role = guild.get_role(raw_role.id)
-            unaddable_roles_str += f"{role.mention}, "
+            unaddable_roles_strs.append(f"{role.mention}")
+        unaddable_roles_str = f", ".join(unaddable_roles_strs)
         await ctx.send(embed=pn_embed(title=f"**Unable to add back the following roles to {member.display_name}**",
                                       desc=unaddable_roles_str))
 
@@ -255,6 +259,56 @@ async def move_member_out_of_isolation_room(ctx: commands.Context, member: Union
 
     log.info("Restoration Complete")
 
+
+# TODO: Merge move_member_out_of_isolation_room_from_react() with move_member_out_of_isolation_room()
+async def move_member_out_of_isolation_room_from_react(response_channel: discord.TextChannel, bot: 'PNBot', member: Union[discord.User, discord.Member],
+                                                       isolation_role: discord.Role, reason="", inactive_event=False, cooldown_event=False):
+
+    db_pool = bot.db
+    guild: discord.Guild = response_channel.guild
+    log.info(f"Removing Isolation Role {isolation_role}")
+    staff_role_id = bot.guild_setting(guild.id, 'team_role_id')
+
+    try:
+        await member.remove_roles(isolation_role, reason=reason)
+    except discord.Forbidden:
+        staff_role: discord.Role = guild.get_role(staff_role_id)
+
+        await response_channel.send(embed=pn_embed(title=f"Error!",
+                                                   desc=f"**I was unable to remove the {isolation_role.name} role from {member.mention}.\n"
+                                                   f"{staff_role.mention}, please remove the role and then delete this message. I will now attempt to restore their removed roles."))
+
+    log.info(f"Getting users roles from DB")
+    user_roles: List[pDB.RoleRemovedFromUser] = await pDB.get_roles_tmp_removed_from_user(db_pool, guild.id, member.id)
+
+    log.info("Restoring removed roles to user")
+    roles_unable_to_add = []
+    for role in user_roles:
+        try:
+            await member.add_roles(role, reason=reason)
+        except discord.Forbidden:
+            roles_unable_to_add.append(role)
+            log.info("Could not add all roles due to permissions")
+
+    if len(roles_unable_to_add) > 0:
+
+        staff_role: discord.Role = guild.get_role(staff_role_id)
+        unaddable_roles_str = f"{staff_role.mention}, please add the following roles back manually to {member.mention} and then delete this message.\n\N{ZERO WIDTH SPACE}\n"
+        unaddable_roles_strs = []
+        for raw_role in roles_unable_to_add:
+            role = guild.get_role(raw_role.id)
+            unaddable_roles_strs.append(f"{role.mention}")
+        unaddable_roles_str += f", ".join(unaddable_roles_strs)
+        await response_channel.send(embed=pn_embed(title=f"**Unable to add back the following roles to {member.display_name}**",
+                                    desc=unaddable_roles_str))
+
+    log.info("Removing stored roles from DB")
+    await pDB.delete_inactive_member_removed_roles(db_pool, guild.id, member.id)
+
+    if inactive_event:
+        await pDB.add_inactivity_event(db_pool, guild.id, member.id, 0, 1, None)
+
+    log.info("Restoration Complete")
 
 
 class IsolateInactiveMembers:
@@ -954,6 +1008,20 @@ class UserManagement(commands.Cog):
 
         self.bot: 'PNBot' = bot
         self.pool: asyncpg.pool.Pool = bot.db
+        self._welcome_back_msg_ids_cache: Dict[int, int] = {}
+
+    async def get_welcome_back_react_msg_id(self, guild_id: int) -> Optional[int]:
+
+        # TODO: Implement cache. Cache needs to be invalidated when new msg is sent
+        # if guild_id in self._welcome_back_msg_ids_cache:
+        #     return self._welcome_back_msg_ids_cache[guild_id]
+        # else:
+        settings = await pDB.get_guild_settings(self.pool, guild_id)
+        if settings is not None and settings.welcome_back_react_msg_id is not None:
+            self._welcome_back_msg_ids_cache[guild_id] = settings.welcome_back_react_msg_id
+            return self._welcome_back_msg_ids_cache[guild_id]
+
+        return None
 
     """ --- on_* Listener Functions --- """
 # region on_DiscordEvent Listener Functions
@@ -1029,6 +1097,58 @@ class UserManagement(commands.Cog):
     async def on_guild_role_delete(self, role: discord.Role):
         log.info(f"The role {role.name} was deleted from {role.guild.name}")
         await pDB.delete_role_tmp_removed_from_all_user(self.pool, role.guild.id, role.id)
+
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """
+        This event is monitoring reacts for the function of monitoring for the Welcome Back Reaction.
+        """
+
+        wb_msg_id = await self.get_welcome_back_react_msg_id(payload.guild_id)
+        if wb_msg_id is not None and wb_msg_id == payload.message_id:
+            # This is a welcome Back React.
+            guild: discord.Guild = self.bot.get_guild(payload.guild_id)
+            message: discord.Message = await self.bot.get_message(message_id=payload.message_id, channel_id=payload.channel_id)
+            emoji: discord.PartialEmoji = payload.emoji
+            member: Union[discord.User, discord.Member] = payload.member
+
+            # Remove the reaction
+            await message.remove_reaction(emoji, member)
+
+            if emoji.name == "\N{Waving Hand Sign}":
+                # Check if this was done by an inactive member or a staff member.
+                im_configs = self.bot.guild_setting(payload.guild_id, 'inactive_member_configs')
+                if im_configs is not None:
+                    wb_configs = im_configs[0]
+                    wb_role_id = wb_configs['role']
+                    wb_role: discord.Role = guild.get_role(wb_role_id)
+
+                    has_wb_role = wb_role in member.roles
+                    if has_wb_role:
+                        # we now need to restore access.
+                        wb_channel: discord.TextChannel = guild.get_channel(payload.channel_id)
+
+                        await move_member_out_of_isolation_room_from_react(wb_channel, self.bot, member, wb_role, inactive_event=True, reason="The Member is being moved out of Welcome Back because they reacted to the WB Message.")
+
+                        # Log It.
+                        inactivity_events: List['pDB.InactivityEvent'] = await pDB.get_inactivity_events(self.pool, guild.id, member.id)
+                        reactive_count: int = 0
+                        for event in inactivity_events:
+                            if event.is_active:
+                                reactive_count += 1
+
+                        log_ch_id = self.bot.guild_setting(guild.id, 'welcomeback_log_channel_id')
+                        log_channel = await get_channel(self.bot, log_ch_id)
+                        await log_channel.send(embed=log_welcome_back(member, reactive_count))
+
+
+    # @commands.Cog.listener()
+    # async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+    #
+    #     interview = bot.open_interviews.get_by_channel_id(payload.channel_id)
+    #     if interview is not None:
+    #         await interview.check_remove_reactions(payload)
 
 
     """ --- on_* Listener Helper Functions --- """
@@ -1202,9 +1322,11 @@ class UserManagement(commands.Cog):
                     await restore_inactive_member(ctx, member)
 
                     activated_members.append(member)
+                    break
                 else:
                     await ctx.send(embed=pn_embed(title="Warning!", desc=f"{member.display_name} is not in #Welcome Back!"))
                     activated_members.append(member)
+                    break
 
         if len(activated_members) < 1:
             embed = pn_embed("Error! Could not restore access! Please attempt to do so manually.")
@@ -1216,6 +1338,18 @@ class UserManagement(commands.Cog):
             embed = pn_embed(f"Welcome Back Everyone!.",
                              f"Restored Access for {len(activated_members)} Members.")
         await msg.edit(embed=embed)
+
+        for member in members:
+            # Log It.
+            inactivity_events: List['pDB.InactivityEvent'] = await pDB.get_inactivity_events(self.pool, ctx.guild.id, member.id)
+            reactive_count: int = 0
+            for event in inactivity_events:
+                if event.is_active:
+                    reactive_count += 1
+
+            log_ch_id = self.bot.guild_setting(ctx.guild.id, 'welcomeback_log_channel_id')
+            log_channel = await get_channel(self.bot, log_ch_id)
+            await log_channel.send(embed=log_welcome_back(member, reactive_count))
 
 
     @commands.has_permissions(manage_messages=True)
@@ -1943,6 +2077,33 @@ class UserManagement(commands.Cog):
         page.embed.title = page_header
         page.embed.color = pn_orange()
         await page.paginate()
+
+
+    """                                             '''
+    --- Welcome Back Channel Configuration Commands ---
+    """
+
+    @commands.has_permissions(manage_messages=True)
+    @commands.guild_only()
+    @eCommands.command(name="send_welcome_back_msg",
+                       brief="Send a new message to welcome back inactive users",
+                       examples=['Welcome back message here!!!'],
+                       category="User Management")
+    async def send_welcome_back_msg(self, ctx: commands.Context, *, welcome_back_msg: str):
+
+        guild: discord.Guild = ctx.guild
+        inactive_configs: List[Dict] = ctx.bot.guild_setting(ctx.guild.id, 'inactive_member_configs')
+        welcome_back_ch_id = inactive_configs[0]['channel']
+        welcome_back_ch: discord.TextChannel = discord.utils.get(guild.channels, id=welcome_back_ch_id)
+
+        wb_embed = pn_embed(desc=welcome_back_msg)
+        wb_react_msg = await welcome_back_ch.send(embed=wb_embed)
+
+        await wb_react_msg.add_reaction("\N{Waving Hand Sign}")
+        await pDB.upsert_welcome_back_react_msg_id(self.pool, guild.id, wb_react_msg.id)
+
+        await ctx.send(embed=pn_embed(title="Welcome Back Message Set"))
+
 
 
 def setup(bot):

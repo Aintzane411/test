@@ -241,6 +241,56 @@ def split_text(text: Union[str, List], max_size: int = 2000, delimiter: str = "\
     return output
 
 
+def make_ordinal(n: int) -> str:
+    """
+    Convert an integer into its ordinal representation::
+
+        make_ordinal(0)   => '0th'
+        make_ordinal(3)   => '3rd'
+        make_ordinal(122) => '122nd'
+        make_ordinal(213) => '213th'
+    """
+    suffix = ['th', 'st', 'nd', 'rd', 'th', 'th', 'th', 'th', 'th', 'th']
+
+    if n < 0:
+        n *= -1
+
+    n = int(n)
+
+    if n % 100 in (11, 12, 13):
+        s = 'th'
+    else:
+        s = suffix[n % 10]
+
+    return str(n) + s
+    # if numb < 20:  # determining suffix for < 20
+    #     if numb == 1:
+    #         suffix = 'st'
+    #     elif numb == 2:
+    #         suffix = 'nd'
+    #     elif numb == 3:
+    #         suffix = 'rd'
+    #     else:
+    #         suffix = 'th'
+    # else:  # determining suffix for > 20
+    #     tens = str(numb)
+    #     tens = tens[-2]
+    #     unit = str(numb)
+    #     unit = unit[-1]
+    #     if tens == "1":
+    #         suffix = "th"
+    #     else:
+    #         if unit == "1":
+    #             suffix = 'st'
+    #         elif unit == "2":
+    #             suffix = 'nd'
+    #         elif unit == "3":
+    #             suffix = 'rd'
+    #         else:
+    #             suffix = 'th'
+    # return str(numb) + suffix
+
+
 class GuildSettings:
 
     def __init__(self, file_name: str = "guildSettings.json"):

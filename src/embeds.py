@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional, Union
 import discord
 from discord.embeds import EmptyEmbed
 
-from utilities.utils import pn_embed
+from utilities.utils import pn_embed, make_ordinal
 from utilities.moreColors import pn_orange
 
 if TYPE_CHECKING:
@@ -68,6 +68,21 @@ def log_deny(new_account: discord.Member, greeter_account: discord.Member, linke
     embed.set_footer(text="Greeter {}'s ID: {}".format(greeter_account.name, greeter_account.id))
 
     avatar = new_account.avatar_url_as(
+        static_format="png")  # Need to use format other than WebP for image to display on iOS. (I think this is a recent discord bug.)
+    embed.set_thumbnail(url=avatar)
+
+    return embed
+
+
+def log_welcome_back(reactivated_account: discord.Member, inactive_count: int):
+    # Description contains 0width char between \n  \n
+
+    embed = discord.Embed(title=f"Welcome Back {reactivated_account.display_name}!",
+                          description="<@{}> is no longer an inactive member.\n"
+                                      "This is the **{}** time they have had their server access restored becoming inactive.\n  ‌‌‌ \n{}'s ID: `{}`".format(reactivated_account.id, make_ordinal(inactive_count), reactivated_account.name, reactivated_account.id),
+                          color=pn_orange(), timestamp=datetime.utcnow())
+
+    avatar = reactivated_account.avatar_url_as(
         static_format="png")  # Need to use format other than WebP for image to display on iOS. (I think this is a recent discord bug.)
     embed.set_thumbnail(url=avatar)
 

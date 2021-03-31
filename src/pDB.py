@@ -231,12 +231,13 @@ async def delete_interview(pool: asyncpg.pool.Pool, cid: int, mid: int):
 #         conn: asyncpg.connection.Connection
 #         return (await conn.fetchval("SELECT COUNT(*) FROM guild_settings WHERE guild_id = ?", sid) > 0)
 #
-# @dataclass
-# class GuildSettings:
-#     """Data Storage for Guild Settings"""
-#     guild_id: int
-#     raid_level: int
-#     welcome_back_react_msg_id: Optional[int]
+
+@dataclass
+class GuildDBSettings:
+    """Data Storage for Guild DB Settings"""
+    guild_id: int
+    raid_level: int
+    welcome_back_react_msg_id: Optional[int]
 
 
 @db_deco
@@ -263,27 +264,27 @@ async def get_raid_level(pool: asyncpg.pool.Pool, sid: int) -> int:
         else:
             return 0
 
-#
-#
-# @db_deco
-# async def upsert_welcome_back_react_msg_id(pool: asyncpg.pool.Pool, guild_id: int, message_id: Optional[int]):
-#     async with pool.acquire() as conn:
-#         conn: asyncpg.connection.Connection
-#
-#         await conn.execute("""
-#                             INSERT INTO guild_settings(guild_id, welcome_back_react_msg_id) VALUES($1, $2)
-#                             ON CONFLICT(guild_id)
-#                             DO UPDATE SET welcome_back_react_msg_id = EXCLUDED.welcome_back_react_msg_id
-#                             """, guild_id, message_id)
-#
-#
-# @db_deco
-# async def get_guild_settings(pool: asyncpg.pool.Pool, guild_id: int) -> Optional[GuildSettings]:
-#     async with pool.acquire() as conn:
-#         conn: asyncpg.connection.Connection
-#         row = await conn.fetchrow(" SELECT * from guild_settings WHERE guild_id = $1", guild_id)
-#         return GuildSettings(**row) if row is not None else None
-#
+
+
+@db_deco
+async def upsert_welcome_back_react_msg_id(pool: asyncpg.pool.Pool, guild_id: int, message_id: Optional[int]):
+    async with pool.acquire() as conn:
+        conn: asyncpg.connection.Connection
+
+        await conn.execute("""
+                            INSERT INTO guild_settings(guild_id, welcome_back_react_msg_id) VALUES($1, $2)
+                            ON CONFLICT(guild_id)
+                            DO UPDATE SET welcome_back_react_msg_id = EXCLUDED.welcome_back_react_msg_id
+                            """, guild_id, message_id)
+
+
+@db_deco
+async def get_guild_settings(pool: asyncpg.pool.Pool, guild_id: int) -> Optional[GuildDBSettings]:
+    async with pool.acquire() as conn:
+        conn: asyncpg.connection.Connection
+        row = await conn.fetchrow(" SELECT * from guild_settings WHERE guild_id = $1", guild_id)
+        return GuildDBSettings(**row) if row is not None else None
+
 
 # endregion
 
@@ -759,6 +760,26 @@ class InactivityEvent:
     def previous_lvl_str(self):
         return self.lvl_to_str(self.previous_level)
 
+    @property
+    def is_active(self) -> bool:
+        if self.current_level == 0:
+            return True
+        return False
+
+
+    @property
+    def is_welcome_back(self) -> bool:
+        if self.current_level == 1:
+            return True
+        return False
+
+
+    @property
+    def is_re_interview(self) -> bool:
+        if self.current_level == 2:
+            return True
+        return False
+
 
     def lvl_to_str(self, lvl: int) -> str:
         if lvl == 0:
@@ -768,6 +789,8 @@ class InactivityEvent:
         if lvl == 2:
             return "Inactive - Level 2"
         return "Unknown"
+
+
 
 @db_deco
 async def add_inactivity_event(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, current_level: int, previous_level: int,
@@ -1004,7 +1027,7 @@ async def create_tables(pool: asyncpg.pool.Pool):
                                CREATE TABLE if not exists guild_settings(
                                guild_id                         BIGINT NOT NULL,
                                raid_level                       INT DEFAULT 0,
-                               --welcome_back_react_msg_id        BIGINT DEFAULT NULL,
+                               welcome_back_react_msg_id        BIGINT DEFAULT NULL,
                                PRIMARY KEY              (guild_id)
                               );
                         ''')
