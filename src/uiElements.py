@@ -78,6 +78,17 @@ class Page:
     def __init__(self, name: Optional[str] = None, body: Optional[str] = None,
                  callback: Callable = do_nothing, additional: str = None, embed: Optional[discord.Embed] = None, image = None,
                  previous_msg: Optional[Union[discord.Message, PageResponse]] = None, timeout: int = 120.0):
+        """
+
+        :param name: The header of a Text Message based Page. Ignored if embed is used.
+        :param body: The body of a Text Message based Page. Ignored if embed is used.
+        :param callback: The callback function that gets called to handle the user input.
+        :param additional: The footer of a Text Message based Page. Ignored if embed is used.
+        :param embed: The embed that is used for a Embed based Page.
+        :param image: Includes an image?
+        :param previous_msg: The last UI message sent. Used for edit in place? Can be either a discord msg Object, or a PageResponse Object
+        :param timeout: How long, in seconds, till the UI times out from inactivity.
+        """
 
         self.name = name
         self.body = body
@@ -216,6 +227,22 @@ class StringReactPage(Page):
         name: Optional[str] = None, body: Optional[str] = None,
         callback: Callable = do_nothing, additional: str = None, embed: Optional[discord.Embed] = None,
         previous_msg: Optional[Union[discord.Message, PageResponse]] = None, timeout: int = 120.0
+
+        :param name: The header of a Text Message based Page. Ignored if embed is used.         Optional[str]
+        :param body: The body of a Text Message based Page. Ignored if embed is used.           Optional[str]
+        :param callback: The callback function that gets called to handle the user input.       Callable
+        :param additional: The footer of a Text Message based Page. Ignored if embed is used.   Optional[str]
+        :param embed: The embed that is used for a Embed based Page.                            discord.Embed
+        :param image: Includes an image?
+        :param previous_msg: The last UI message sent. Used for edit in place? Can be either a discord msg Object, or a PageResponse Object
+        :param timeout: How long, in seconds, till the UI times out from inactivity. Default 120s  int
+
+        :param allowable_responses: Restrict the valid options the user can send the bot. Not case sensitive.
+        :param cancel_btn: Should a cancel button be included in the UI element.
+        :param edit_in_place: If true, the UI will edit the first embed when a new screen is sent. Otherwise a new embed will be sent every time.
+        :param remove_msgs:
+        :param cancel_emoji: Overrides the default cancel_btn emoji
+        :param cancel_btn_loc: Specify where the cancel button will be located
         """
         self.ctx = None
         self.match = None
@@ -244,6 +271,9 @@ class StringReactPage(Page):
     async def run(self, ctx: commands.Context, new_embed: Optional[discord.Embed] = None, send_new_msg=True):
         """
         Callback signature: page: reactMenu.Page
+
+        :param new_embed: Replaces the currently stored embed with a new embed
+        :param send_new_msg:
         """
         self.ctx = ctx
         channel: discord.TextChannel = ctx.channel
@@ -418,6 +448,43 @@ class StringReactPage(Page):
                 raise CannotAddReactions()
             if not permissions.external_emojis:
                 raise CannotAddExtenalReactions()
+
+    async def update_buttons(self, new_buttons: List[Tuple[Union[discord.PartialEmoji, str], Any]]):
+
+        old_buttons_set = set(self.buttons)
+        new_buttons_set = set(new_buttons)
+        buttons_to_remove = old_buttons_set.difference(new_buttons_set)
+        buttons_to_add = new_buttons_set.difference(old_buttons_set)
+
+        self.buttons = new_buttons or []
+
+        if self.cancel_btn:  # and cancel_btn_loc is None:
+            self.buttons.append((self.cancel_emoji, None))
+            buttons_to_add.add((self.cancel_emoji, None))
+
+        for react, _ in self.buttons:
+            await self.remove_bot_react(react)
+        if self.cancel_btn:
+            await self.remove_bot_react(self.cancel_emoji)
+
+        if self.edit_in_place:
+            async def modify_reactions():
+                # remove_reactions():
+                try:
+                    await self.page_message.clear_reactions()
+                except (discord.Forbidden, discord.NotFound, discord.InvalidArgument, discord.HTTPException):
+                    for (reaction, _) in buttons_to_remove:
+                        await self.remove_bot_react(reaction)
+
+                # add reactions
+                for (reaction, _) in buttons_to_add:
+                    try:
+                        await self.page_message.add_reaction(reaction)
+                    except discord.Forbidden:
+                        raise CannotAddReactions()
+
+            loop: asyncio.AbstractEventLoop = self.ctx.bot.loop
+            task = loop.create_task(modify_reactions())
 
 
     async def send(self, content: Optional[str] = None, embed: Optional[discord.Embed] = None, image: Optional[discord.File] = None) -> discord.Message:
