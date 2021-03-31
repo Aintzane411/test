@@ -45,6 +45,8 @@ async def create_db_pool(uri: str) -> asyncpg.pool.Pool:
 
 # --- Inserts --- #
 
+# region Join Interview DB Functions
+
 @db_deco
 async def add_new_interview(pool: asyncpg.pool.Pool, sid: int, member_id: int, username: str, channel_id: int,
                                   question_number: int = 0, interview_finished: bool = False, paused: bool = False,
@@ -218,14 +220,23 @@ async def delete_interview(pool: asyncpg.pool.Pool, cid: int, mid: int):
             "DELETE FROM interviews WHERE channel_id = $1 AND member_id = $2",
             cid, mid)
 
+# endregion
 
-# --- Guild Settings --- #
-#
+
+# region Guild Settings DB Functions
+
 # @db_deco
 # async def do_guild_settings_exist(pool: asyncpg.pool.Pool, sid: int) -> bool:
 #     async with pool.acquire() as conn:
 #         conn: asyncpg.connection.Connection
 #         return (await conn.fetchval("SELECT COUNT(*) FROM guild_settings WHERE guild_id = ?", sid) > 0)
+#
+# @dataclass
+# class GuildSettings:
+#     """Data Storage for Guild Settings"""
+#     guild_id: int
+#     raid_level: int
+#     welcome_back_react_msg_id: Optional[int]
 
 
 @db_deco
@@ -252,6 +263,31 @@ async def get_raid_level(pool: asyncpg.pool.Pool, sid: int) -> int:
         else:
             return 0
 
+#
+#
+# @db_deco
+# async def upsert_welcome_back_react_msg_id(pool: asyncpg.pool.Pool, guild_id: int, message_id: Optional[int]):
+#     async with pool.acquire() as conn:
+#         conn: asyncpg.connection.Connection
+#
+#         await conn.execute("""
+#                             INSERT INTO guild_settings(guild_id, welcome_back_react_msg_id) VALUES($1, $2)
+#                             ON CONFLICT(guild_id)
+#                             DO UPDATE SET welcome_back_react_msg_id = EXCLUDED.welcome_back_react_msg_id
+#                             """, guild_id, message_id)
+#
+#
+# @db_deco
+# async def get_guild_settings(pool: asyncpg.pool.Pool, guild_id: int) -> Optional[GuildSettings]:
+#     async with pool.acquire() as conn:
+#         conn: asyncpg.connection.Connection
+#         row = await conn.fetchrow(" SELECT * from guild_settings WHERE guild_id = $1", guild_id)
+#         return GuildSettings(**row) if row is not None else None
+#
+
+# endregion
+
+# region Role DB Functions
 
 @dataclass
 class AllowedRole:
@@ -523,7 +559,9 @@ async def delete_role_cat(pool: asyncpg.pool.Pool, gid: int, cat_id: int):
             "DELETE FROM role_categories WHERE cat_id = $1",
              cat_id)
 
+# endregion
 
+# region Cached Messages DB Functions
 # ----- Cached Messages DB Functions ----- #
 
 @dataclass
@@ -608,7 +646,334 @@ async def get_number_of_rows_in_messages(pool, table: str = "messages") -> int: 
         num_of_rows = await conn.fetchval("SELECT COUNT(*) FROM messages")
         return num_of_rows
 
+# endregion
 
+
+# region Members DB Functions
+
+@dataclass
+class DBMember:
+    user_id: int
+    guild_id: int
+    internal_user_id: int
+    join_count: int
+    inactive_L1_count: int
+    inactive_L2_count: int
+    post_count: int
+    become_member: bool
+    soft_banned: bool
+
+
+@db_deco
+async def upsert_new_member(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, pn_user_id: int):
+    async with pool.acquire() as conn:
+        conn: asyncpg.connection.Connection
+
+        await conn.execute("""
+                            INSERT INTO members(user_id, guild_id, internal_user_id) VALUES($1, $2, $3)
+                            ON CONFLICT(guild_id, user_id)
+                            DO UPDATE 
+                            SET join_count = join_count + 1
+                            """, user_id, guild_id, pn_user_id)
+
+
+@db_deco
+async def get_member(pool, guild_id: int, user_id: int) -> Optional[DBMember]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM members WHERE guild_id = $1 and user_id = $2", guild_id, user_id)
+        return DBMember(**row) if row is not None else None
+
+
+@db_deco
+async def get_linked_members(pool, guild_id: int, pn_user_id: int) -> List[DBMember]:
+    async with pool.acquire() as conn:
+        raw_rows = await conn.fetch("SELECT * FROM members WHERE guild_id = $1 and internal_user_id = $2", guild_id, pn_user_id)
+        members = [DBMember(**row) for row in raw_rows]
+        return members
+
+
+@db_deco
+async def update_member(pool, guild_id: int, user_id: int, increment_L1_count: bool = False, increment_L2_count: bool = False,
+                        increase_post_count: int = 0, set_membership: bool = False):
+    async with pool.acquire() as conn:
+        if increment_L1_count:
+            await conn.execute(
+                "UPDATE members SET inactive_l1_count = inactive_l1_count + 1 WHERE guild_id = $1 and user_id = $2",
+                guild_id, user_id)
+
+        if increment_L2_count:
+            await conn.execute(
+                "UPDATE members SET inactive_l2_count = inactive_l2_count + 1 WHERE guild_id = $1 and user_id = $2",
+                guild_id, user_id)
+
+        if increment_L1_count:
+            await conn.execute(
+                "UPDATE members SET inactive_l1_count = inactive_l1_count + 1 WHERE guild_id = $1 and user_id = $2",
+                guild_id, user_id)
+
+        if increase_post_count:
+            await conn.execute(
+                "UPDATE members SET post_count = post_count + $3 WHERE guild_id = $1 and user_id = $2",
+                guild_id, user_id, increase_post_count)
+
+        if set_membership:
+            await conn.execute(
+                "UPDATE members SET became_member = TRUE WHERE guild_id = $1 and user_id = $2",
+                guild_id, user_id)
+
+
+@db_deco
+async def update_member_softban(pool, guild_id: int, user_id: int, ban: bool):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE members SET soft_banned = $3 WHERE guild_id = $1 and user_id = $2",
+            guild_id, user_id, ban)
+
+
+# endregion
+
+
+# region Inactivity History DB Functions
+
+@dataclass
+class InactivityEvent:
+    id: int
+    user_id: int
+    guild_id: int
+    current_level: int
+    previous_level: int
+    reason: str
+    ts: int
+
+    @property
+    def timestamp(self):
+        return datetime.utcfromtimestamp(self.ts)
+
+
+    @property
+    def current_lvl_str(self):
+        return self.lvl_to_str(self.current_level)
+
+
+    @property
+    def previous_lvl_str(self):
+        return self.lvl_to_str(self.previous_level)
+
+
+    def lvl_to_str(self, lvl: int) -> str:
+        if lvl == 0:
+            return "Active"
+        if lvl == 1:
+            return "Inactive - Level 1"
+        if lvl == 2:
+            return "Inactive - Level 2"
+        return "Unknown"
+
+@db_deco
+async def add_inactivity_event(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, current_level: int, previous_level: int,
+                               reason: Optional[str] = None, event_ts: Optional[datetime] = None):
+    if event_ts is None:
+        event_ts = datetime.utcnow()
+    ts = event_ts.timestamp()
+
+    if reason is None:
+        reason = "No Reason Given"
+
+    async with pool.acquire() as conn:
+        await conn.execute("""INSERT INTO 
+                              inactivity_history(user_id, guild_id, current_level, previous_level, reason, ts) VALUES($1, $2, $3, $4, $5, $6)
+                           """, user_id, guild_id, current_level, previous_level, reason, ts)
+
+@db_deco
+async def get_inactivity_events(pool, guild_id: int, user_id: int) -> List[InactivityEvent]:
+    async with pool.acquire() as conn:
+        raw_rows = await conn.fetch("SELECT * FROM inactivity_history WHERE guild_id = $1 and user_id = $2", guild_id, user_id)
+        events = [InactivityEvent(**row) for row in raw_rows]
+        return events
+
+
+# @db_deco
+# async def get_most_recent_inactivity_event(pool, guild_id: int, user_id: int) -> Optional[InactivityEvent]:
+#     async with pool.acquire() as conn:
+#
+#         row = await conn.fetchrow("SELECT * FROM inactivity_history WHERE guild_id = $1 and user_id = $2", guild_id, user_id)
+#         return InactivityEvent(**row) if row is not None else None
+
+
+
+
+# endregion
+
+
+# region Current Inactive Members Functions
+
+@dataclass
+class InactiveMember:
+    user_id: int
+    guild_id: int
+    inactivity_level: int
+    ts: int
+
+    @property
+    def timestamp(self):
+        return datetime.utcfromtimestamp(self.ts)
+
+
+
+@db_deco
+async def upsert_inactive_user(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, inactivity_level: int,
+                               event_ts: Optional[datetime] = None):
+    if event_ts is None:
+        event_ts = datetime.utcnow()
+    ts = event_ts.timestamp()
+
+    async with pool.acquire() as conn:
+        await conn.execute("""
+                            INSERT INTO current_inactive_members(user_id, guild_id, inactivity_level, ts) VALUES($1, $2, $3, $4)
+                            ON CONFLICT(guild_id, user_id)
+                            DO UPDATE 
+                            SET inactivity_level = EXCLUDED.inactivity_level, ts = EXCLUDED.ts
+                            """, user_id, guild_id, inactivity_level, ts)
+
+
+@db_deco
+async def get_inactive_user(pool, guild_id: int, user_id: int) -> Optional[InactiveMember]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM current_inactive_members WHERE guild_id = $1 and user_id = $2", guild_id, user_id)
+        return InactiveMember(**row) if row is not None else None
+
+
+@db_deco
+async def remove_inactive_user(pool, guild_id: int, user_id: int):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM current_inactive_members WHERE guild_id = $1 AND user_id = $2", guild_id, user_id)
+
+# endregion
+
+
+# region Temp Removed Member Roles Functions
+
+@dataclass
+class RoleRemovedFromUser:
+    user_id: int
+    guild_id: int
+    role_id: int
+
+    @property
+    def id(self):
+        return self.role_id
+
+    def __hash__(self):
+        return hash(self.id)
+
+
+@db_deco
+async def add_role_tmp_removed_from_user(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, role_id: int):
+
+    async with pool.acquire() as conn:
+        await conn.execute("""INSERT INTO
+                              temp_removed_member_roles(user_id, guild_id, role_id) VALUES($1, $2, $3)
+                           """, user_id, guild_id, role_id)
+        # await conn.execute("""
+        #                     INSERT INTO temp_removed_member_roles(user_id, guild_id, role_id) VALUES($1, $2, $3)
+        #                     ON CONFLICT(guild_id, user_id, role_id)
+        #                     DO NOTHING
+        #                     """, user_id, guild_id, role_id)
+
+
+@db_deco
+async def get_roles_tmp_removed_from_user(pool, guild_id: int, user_id: int) -> List[RoleRemovedFromUser]:
+    async with pool.acquire() as conn:
+        raw_rows = await conn.fetch("SELECT * FROM temp_removed_member_roles WHERE guild_id = $1 and user_id = $2",
+                                    guild_id, user_id)
+
+        roles = [RoleRemovedFromUser(**row) for row in raw_rows]
+        return roles
+
+
+@db_deco
+async def delete_role_tmp_removed_from_all_user(pool, guild_id: int, role_id: int):
+    """
+    This function removes a role from all entries in the temp_removed_member_roles Table.
+    It is to be used when a role is deleted from the guild.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM temp_removed_member_roles WHERE guild_id = $1 AND role_id = $2", guild_id, role_id)
+
+
+@db_deco
+async def delete_inactive_member_removed_roles(pool, guild_id: int, user_id: int):
+    """
+    This function removes all role from a specific user in the temp_removed_member_roles Table.
+    It is to be used when a member leaves or when giving the roles back.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM temp_removed_member_roles WHERE guild_id = $1 AND user_id = $2", guild_id, user_id)
+
+
+# endregion
+
+
+# region Join Log Functions
+
+@dataclass
+class JoinLogEvent:
+    id: int
+    user_id: int
+    guild_id: int
+    ts: int
+
+    inviter_id: int
+    invite_id: str
+    invite_name: Optional[str]
+
+    @property
+    def timestamp(self):
+        return datetime.utcfromtimestamp(self.ts)
+
+
+@db_deco
+async def add_join_event(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, event_ts: Optional[datetime] = None):
+
+    if event_ts is None:
+        event_ts = datetime.utcnow()
+    ts = event_ts.timestamp()
+
+    async with pool.acquire() as conn:
+        await conn.execute("""INSERT INTO 
+                              join_log(user_id, guild_id, ts) VALUES($1, $2, $3)
+                           """, user_id, guild_id, ts)
+
+
+@db_deco
+async def update_join_event(pool: asyncpg.pool.Pool, guild_id: int, user_id: int, inviter_id: int, invite_id: str,
+                         invite_name: Optional[str] = None):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE join_log SET inviter_id = $1, invite_id = $2, invite_name = $3 WHERE guild_id = $4 AND user_id = $5",
+             inviter_id, invite_id, invite_name, guild_id, user_id)
+
+@db_deco
+async def get_join_events(pool, guild_id: int, user_id: int) -> List[JoinLogEvent]:
+    async with pool.acquire() as conn:
+        raw_rows = await conn.fetch("SELECT * FROM join_log WHERE guild_id = $1 and user_id = $2",
+                                    guild_id, user_id)
+
+        join_logs = [JoinLogEvent(**row) for row in raw_rows]
+        return join_logs
+
+# endregion
+
+# region React Roles Functions
+
+# @dataclass
+# class ReactRolePost:
+#     guild_id: int
+#     message_id: int
+#     role_id: int
+#     emoji_id: str
+
+# endregion
 # ---------- Table Creation ---------- #
 @db_deco
 async def create_tables(pool: asyncpg.pool.Pool):
@@ -634,10 +999,12 @@ async def create_tables(pool: asyncpg.pool.Pool):
                               );
                         ''')
 
+        # ALTER TABLE guild_settings ADD COLUMN welcome_back_react_msg_id BIGINT DEFAULT NULL;
         await conn.execute('''
                                CREATE TABLE if not exists guild_settings(
-                               guild_id                 BIGINT NOT NULL,
-                               raid_level               INT DEFAULT 0,
+                               guild_id                         BIGINT NOT NULL,
+                               raid_level                       INT DEFAULT 0,
+                               --welcome_back_react_msg_id        BIGINT DEFAULT NULL,
                                PRIMARY KEY              (guild_id)
                               );
                         ''')
@@ -661,6 +1028,125 @@ async def create_tables(pool: asyncpg.pool.Pool):
                                emoji                    BIGINT DEFAULT NULL
                               );
                         ''')
+
+
+        """ -- Added 3/6/2021 -- """
+        await conn.execute('''
+                           CREATE TABLE if not exists messages(
+                               message_id           BIGINT PRIMARY KEY,
+                               guild_id             BIGINT NOT NULL,
+                               user_id              BIGINT NOT NULL,  --Could be a webhook id for PK messages?
+                               ts                   BIGINT NOT NULL,  --TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                               content              TEXT DEFAULT NULL,
+                               system_pkid          TEXT DEFAULT NULL,
+                               member_pkid          TEXT DEFAULT NULL,
+                               pk_system_account_id BIGINT DEFAULT NULL  --Discord ID associated with the PK System that sent the message.
+                           )
+                       ''')
+
+
+        """ -- Added 3/13/2021 -- """
+
+        """
+        This table tracks details on each user who visits PN. 
+        """
+        await conn.execute('''
+                           CREATE TABLE if not exists members(
+                                user_id              BIGINT NOT NULL,       -- Discord User ID
+                                guild_id             BIGINT NOT NULL,       -- Discord Guild ID
+                                internal_user_id     BIGINT NOT NULL,       -- Internally Generated ID to link together alt accounts
+                                join_count           INT DEFAULT 1,         -- How many times has the user joined the server
+                                inactive_L1_count    INT DEFAULT 0,         -- How many times has the user went Inactive - Level One
+                                inactive_L2_count    INT DEFAULT 0,         -- How many times has the user went Inactive - Level Two
+                                post_count           INT DEFAULT 0,         -- Users Total post count
+                                became_member        BOOL DEFAULT FALSE,    -- Has this user ever been given membership
+                                soft_banned          BOOL DEFAULT FALSE,    -- Is the user `Soft Banned`
+                                PRIMARY KEY          (user_id, guild_id)
+                           )
+                       ''')
+
+
+        """
+        This table tracks details on each *instance* of a join event @ PN 
+        """
+        await conn.execute('''
+                              CREATE TABLE if not exists join_log(
+                                  id                   SERIAL PRIMARY KEY,
+                                  user_id              BIGINT NOT NULL,    -- Discord User ID
+                                  guild_id             BIGINT NOT NULL,    -- Discord Guild ID
+                                  ts                   BIGINT NOT NULL,    -- Timestamp of when the user joined
+                                  
+                                  inviter_id           BIGINT DEFAULT NULL,    -- Discord User ID of the person who created the invite (Most Recent)
+                                  invite_id            TEXT DEFAULT NULL,      -- The Discord Invite Code / URL (Most Recent)
+                                  invite_name          TEXT DEFAULT NULL   -- GG Name for the invite (Most Recent)
+                              )
+                          ''')
+
+        """
+        This table tracks each *instance* that a member was deemed to be Inactive or became active again.
+        """
+        await conn.execute('''
+                           CREATE TABLE if not exists inactivity_history(
+                                id                   SERIAL PRIMARY KEY,
+                                user_id              BIGINT NOT NULL,       -- Discord User ID
+                                guild_id             BIGINT NOT NULL,       -- Discord Guild ID
+                                current_level        INT NOT NULL,          -- The inactivity level the user is now at. 0: Active, 1: Inactive - One, 2: Inactive - Two
+                                previous_level       INT NOT NULL,          -- The inactivity level the user was previously at.  -1: None, 0: Active, 1: Inactive - One, 2: Inactive - Two
+                                reason               TEXT NOT NULL,         -- Why the user was marked active or inactive.
+                                ts                   BIGINT NOT NULL        -- Timestamp of when the user was marked as inactive or active.
+                            )
+                        ''')
+
+        """
+        This table tracks the users that are CURRENTLY marked Inactive, aka we have been given either the "Inactive Member - Level 1" or "Inactive Member - Level 2" roles to.
+        """
+        await conn.execute('''
+                           CREATE TABLE if not exists current_inactive_members(
+                               user_id              BIGINT NOT NULL,    -- Discord User ID
+                               guild_id             BIGINT NOT NULL,    -- Discord Guild ID
+                               inactivity_level     INT NOT NULL,       -- 1 or 2. Corresponds to which 'Inactivity Level' they are currently at.
+                               ts                   BIGINT NOT NULL,    -- Timestamp of when the user was marked as inactive
+                               PRIMARY KEY          (user_id, guild_id)
+                           )
+                       ''')
+
+
+        """
+        The temp_removed_member_roles table keeps track of the roles PNBot removed from a user when giving a inactive role or moving a user to #cooldown,
+         so that it can give those roles back when it subsequently removes the inactive role or removes them from #cooldown.
+
+        Be sure to remove all entries belonging to a **USER** when said user leaves the server. The entry will not be DELETE CASCADED as we are keeping member info indefinitely.
+
+        Be sure to remove all entries belonging to a **ROLE** when said role is deleted. We can not use the "allowed_roles" Table as we will be dealing with roles that can not be on that table (Such as the NSFW role).
+        """
+        await conn.execute('''
+                           CREATE TABLE if not exists temp_removed_member_roles(
+                               user_id              BIGINT NOT NULL,    -- Discord User ID
+                               guild_id             BIGINT NOT NULL,    -- Discord Guild ID
+                               role_id              BIGINT NOT NULL,    -- Discord Role ID
+                               PRIMARY KEY          (user_id, role_id)
+                           )
+                       ''')
+
+        #
+        # await conn.execute('''
+        #                       CREATE TABLE if not exists react_role_post(
+        #                           message_id           BIGINT NOT NULL,    -- Discord User ID
+        #                           guild_id             BIGINT NOT NULL,    -- Discord Guild ID
+        #                           role_id              BIGINT NOT NULL,
+        #                           emoji_id             TEXT NOT NULL,
+        #                           PRIMARY KEY          (message_id, guild_id, role_id, emoji_id)
+        #                       )
+        #                   ''')
+
+        # await conn.execute('''
+        #                        CREATE TABLE if not exists member_activity(
+        #                        member_id                BIGINT NOT NULL,
+        #                        guild_id                 BIGINT NOT NULL,
+        #                        ts                       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        #                        PRIMARY KEY              (member_id, guild_id)
+        #                       );
+        #                 ''')
 
         # await conn.execute('''
         #                        CREATE TABLE if not exists user_profiles(
