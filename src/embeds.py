@@ -1,7 +1,7 @@
 """
 
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Union
 
 import discord
@@ -74,12 +74,24 @@ def log_deny(new_account: discord.Member, greeter_account: discord.Member, linke
     return embed
 
 
-def log_welcome_back(reactivated_account: discord.Member, inactive_count: int):
+def log_welcome_back(reactivated_account: discord.Member, inactive_count: int, deactive_time: timedelta):
     # Description contains 0width char between \n  \n
 
+    if deactive_time.days > 0:
+        deactive_time_str = f"**{deactive_time.days}** days"
+    else:
+        hours = deactive_time.seconds // 3600
+        minutes = (deactive_time.seconds % 3600) // 60
+
+        if hours > 0:
+            deactive_time_str = f"**{hours + (minutes / 60):.2f}** hours"
+        else:
+            seconds = deactive_time.seconds % 60
+            deactive_time_str = f"**{minutes + (seconds / 60):.2f}** minutes"
+
     embed = discord.Embed(title=f"Welcome Back {reactivated_account.display_name}!",
-                          description="<@{}> is no longer an inactive member.\n"
-                                      "This is the **{}** time they have had their server access restored becoming inactive.\n  ‌‌‌ \n{}'s ID: `{}`".format(reactivated_account.id, make_ordinal(inactive_count), reactivated_account.name, reactivated_account.id),
+                          description=f"<@{reactivated_account.id}> is no longer an inactive member.\n"
+                                      f"This is the **{make_ordinal(inactive_count)}** time they have had their server access restored becoming inactive.\nIt took {deactive_time_str} for the user to regain access.\n  ‌‌‌ \n{reactivated_account.name}'s ID: `{reactivated_account.id}`",
                           color=pn_orange(), timestamp=datetime.utcnow())
 
     avatar = reactivated_account.avatar_url_as(

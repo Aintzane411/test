@@ -12,6 +12,7 @@ import eCommands
 import asyncio
 import dateparser
 from utilities.pluralKitAPI import get_pk_message, PKAPIUnavailable, CouldNotConnectToPKAPI, UnknownPKError
+from utilities.roleParser import parse_csv_roles
 from utilities.utils import is_team_member, send_long_msg, send_long_embed, pn_embed, get_channel
 from utilities.moreColors import pn_orange
 from datetime import datetime, timedelta
@@ -372,6 +373,10 @@ class IsolateInactiveMembers:
         if not should_cont:
             return await self.canceled()
 
+        should_cont = await self.memberHasRolesQuestion()
+        if not should_cont:
+            return await self.canceled()
+
         earliest_join_date = self.selected_filters['join_date'] if self.selected_filters['join_date'] is not None else None
         latest_join_date = datetime.utcnow() - timedelta(days=1)
         await self.display_processing_msg()
@@ -394,22 +399,23 @@ class IsolateInactiveMembers:
                 in_inact_one = discord.utils.get(member.roles, id=inactive_level_one_id)
                 in_inact_two = discord.utils.get(member.roles, id=inactive_level_two_id)
                 if in_inact_one is None and in_inact_two is None:
-                    if member.joined_at < latest_join_date and (earliest_join_date is None or member.joined_at > earliest_join_date):
-                        members_to_check.append(member)
-                        messages = await pDB.get_cached_messages_after_timestamp(self.pool, last_active, guild.id, member.id)
-                        active = discord.utils.get(messages, user_id=member.id)
-                        if not active:
+                    if self.doesMemberHaveAllRequiredRoles(self.selected_filters['required_roles'], member):
+                        if member.joined_at < latest_join_date and (earliest_join_date is None or member.joined_at > earliest_join_date):
+                            members_to_check.append(member)
+                            messages = await pDB.get_cached_messages_after_timestamp(self.pool, last_active, guild.id, member.id)
+                            inactive = self.doesMemberHaveFewerThanMinimumPostCount(self.selected_filters['post_count'], messages, member)
+                            if inactive:
 
-                                join_date_msg = f"Joined: {member.joined_at.strftime('%b %d, %Y')}" if member.joined_at is not None else "Could not determine when they joined."
-                                inact_mem_text = f"<@!{member.id}> - {member.name}#{member.discriminator}, Posts: **{len(messages)}**{last_active_msg},  {join_date_msg}"
-                                inactive_members.append((member, inact_mem_text))
+                                    join_date_msg = f"Joined: {member.joined_at.strftime('%b %d, %Y')}" if member.joined_at is not None else "Could not determine when they joined."
+                                    inact_mem_text = f"<@!{member.id}> - {member.name}#{member.discriminator}, Posts: **{len(messages)}**{last_active_msg},  {join_date_msg}"
+                                    inactive_members.append((member, inact_mem_text))
 
 
         inactive_members.sort(key=lambda x: x[0].joined_at, reverse=True)
         self.selected_inactive_members = inactive_members
 
         should_cont = await self.confirm_selected_parameters(len(inactive_members))
-        if not should_cont:
+        if should_cont is None or not should_cont:
             return await self.canceled()
 
         self.selected_inactive_members = self.selected_inactive_members[:self.selected_filters['member_count']]
@@ -425,9 +431,26 @@ class IsolateInactiveMembers:
         # Clean up and remove the reactions
         # status_embed = pn_embed(title=f"{len(inactive_members)} members isolated", desc=f"{len(inactive_members)} members isolated")
         # await self.ui.finish(status_embed)
+        await self.display_finished_moving_msg()
         await self.ui.finish()
         await self.show_paginated_user_list()
 
+
+    def doesMemberHaveAllRequiredRoles(self, required_roles: List[discord.Role], member: Union[discord.User, discord.Member]) -> bool:
+        member_roles: List[discord.Role] = member.roles
+
+        for required_role in required_roles:
+            if required_role not in member_roles:
+                return False
+
+        return True
+
+    def doesMemberHaveFewerThanMinimumPostCount(self, minimum_post_count: int, cached_messages: List[pDB.CachedMessage], member: Union[discord.User, discord.Member]):
+
+        members_messages = list(filter(lambda x: x.user_id == member.id, cached_messages))
+        if len(members_messages) > minimum_post_count:
+            return False
+        return True
 
 
     async def canceled(self):
@@ -453,6 +476,11 @@ class IsolateInactiveMembers:
         member_str = member.display_name if member is not None else "."
         embed = pn_embed(title=f"Currently Moving {total_members_to_be_moved} to Welcome Back",
                          desc=f"Moving {member_str}.... This may take a while....\n**{members_moved}** out of **{total_members_to_be_moved}** have been moved to Welcome Back")
+        await self.ui.page_message.edit(embed=embed)
+
+    async def display_finished_moving_msg(self, total_members_moved):
+        embed = pn_embed(title=f"Finished Moving {total_members_moved} Members to Welcome Back",
+                         desc=f"**{total_members_moved}** members who met the following chriteria were moved to Welcome Back: \n {self.current_parameters}")
         await self.ui.page_message.edit(embed=embed)
 
 
@@ -596,6 +624,46 @@ class IsolateInactiveMembers:
         self.selected_filters_text_list.append(
             f"Members who joined after: **{self.selected_filters['join_date'].strftime('%b %d, %Y')}**")
 
+        return True
+
+    async def memberHasRolesQuestion(self, error_msg_embed: Optional[discord.Embed] = None):
+        """
+
+        :param error_msg_embed: The function can be called recursively if the user enters invalid input. This parameter should contain the error message embed in that case.
+        :type error_msg_embed:
+        :return:
+        :rtype:
+        """
+        questionText = f"Should the user have any specific roles?\nEnter any number of roles, in one post, each separated with a comma. ?\n\N{ZERO WIDTH SPACE}\n" \
+                       f"{self.current_parameters}\n\N{ZERO WIDTH SPACE}\n " \
+                       f"React to \N{Black Rightwards Arrow} to not require any roles."
+
+        log.info(f"Running memberHasRolesQuestion")
+        self.ui.embed = error_msg_embed or pn_embed(title="Setting Inactivity Parameters",
+                        desc=questionText)
+
+
+        response = await self.ui.run(self.ctx)
+        if response is None:
+            return False
+
+        if response.c() == 'right_button':
+            self.selected_filters['required_roles'] = None
+            self.selected_filters_text_list.append(f"Roles Required: **None**")
+            return True
+
+        parsed_roles = await parse_csv_roles(self.ctx, response.c(), None, allow_privileged_roles=True)
+
+        if parsed_roles is None or len(parsed_roles.good_roles) == 0:
+            return await self.memberPostSearchDepthQuestion(pn_embed(
+                title="Setting Inactivity Parameters",
+                desc=f"Error! Unable to find any roles from {response.c()}! Please try again or skip to the next question.\n\nf{questionText}"
+            ))
+
+
+        self.selected_filters['required_roles'] = parsed_roles.good_roles
+        role_text = ", ".join([role.mention for role in parsed_roles.good_roles])
+        self.selected_filters_text_list.append(f"Only searching for members with all the following roles: {role_text}")
         return True
 
 
@@ -1138,9 +1206,21 @@ class UserManagement(commands.Cog):
                             if event.is_active:
                                 reactive_count += 1
 
+
+                        if len(inactivity_events) >= 2:
+                            inactivity_events.reverse()
+                            reactivetime = inactivity_events[0].timestamp
+                            inactiveTime = inactivity_events[1].timestamp
+                            log.info(f"{member.display_name} was in #Welcome Back for {reactivetime-inactiveTime} before having their access restored.")
+                            deactive_time = reactivetime-inactiveTime
+                        else:
+                            deactive_time = None
+
+
+
                         log_ch_id = self.bot.guild_setting(guild.id, 'welcomeback_log_channel_id')
                         log_channel = await get_channel(self.bot, log_ch_id)
-                        await log_channel.send(embed=log_welcome_back(member, reactive_count))
+                        await log_channel.send(embed=log_welcome_back(member, reactive_count, deactive_time))
 
 
     # @commands.Cog.listener()
@@ -1342,14 +1422,25 @@ class UserManagement(commands.Cog):
         for member in members:
             # Log It.
             inactivity_events: List['pDB.InactivityEvent'] = await pDB.get_inactivity_events(self.pool, ctx.guild.id, member.id)
+
             reactive_count: int = 0
             for event in inactivity_events:
                 if event.is_active:
                     reactive_count += 1
 
+            if len(inactivity_events) >= 2:
+                inactivity_events.reverse()
+                reactivetime = inactivity_events[0].timestamp
+                inactiveTime = inactivity_events[1].timestamp
+                log.info(
+                    f"{member.display_name} was in #Welcome Back for {reactivetime - inactiveTime} before having their access restored.")
+                deactive_time = reactivetime - inactiveTime
+            else:
+                deactive_time = None
+
             log_ch_id = self.bot.guild_setting(ctx.guild.id, 'welcomeback_log_channel_id')
             log_channel = await get_channel(self.bot, log_ch_id)
-            await log_channel.send(embed=log_welcome_back(member, reactive_count))
+            await log_channel.send(embed=log_welcome_back(member, reactive_count, deactive_time))
 
 
     @commands.has_permissions(manage_messages=True)

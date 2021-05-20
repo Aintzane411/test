@@ -715,9 +715,9 @@ async def create_interview(guild: discord.Guild, interviewee: discord.Member, ra
     Role override for interviewee -> Read: Allow, Send: Allow.
     """
 
-    new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=None, read_messages=None)       # @Everyone: All perms Inherit. This is essential for making the no interviews role work.
+    new_perms[guild.default_role] = discord.PermissionOverwrite(send_messages=None, read_messages=None, add_reactions=False)       # @Everyone: All perms Inherit. This is essential for making the no interviews role work.
 
-    new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=None)  # The Member Role. Doesn't need Read perms. It will defacto get them even w/ None. This is essential for making the no interviews role work.
+    new_perms[member_role] = discord.PermissionOverwrite(send_messages=False, read_messages=None, add_reactions=False)  # The Member Role. Doesn't need Read perms. It will defacto get them even w/ None. This is essential for making the no interviews role work.
     new_perms[greeter_role] = discord.PermissionOverwrite(send_messages=True, read_messages=True, add_reactions=True)  # Make sure greeters can see and interact with interviews.
 
     # Prohibit cooldown, inactive members, & Hide interviews from seeing the interviews
